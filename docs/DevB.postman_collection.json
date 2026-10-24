@@ -1,0 +1,408 @@
+{
+  "info": {
+    "name": "Car Wash - Dev B (Disponibilidade e Agendamento)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000/api"
+    },
+    {
+      "key": "clienteId",
+      "value": "1"
+    },
+    {
+      "key": "adminId",
+      "value": "1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Admin (X-Usuario-Id)",
+      "item": [
+        {
+          "name": "Criar janela",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Usuario-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/disponibilidades",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "disponibilidades"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": \"2026-11-14\",\n  \"hora_inicio\": \"08:00\",\n  \"hora_fim\": \"12:00\",\n  \"capacidade\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Listar janelas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Usuario-Id",
+                "value": "{{adminId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/disponibilidades?data_inicio=2026-11-01&data_fim=2026-11-30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "disponibilidades"
+              ],
+              "query": [
+                {
+                  "key": "data_inicio",
+                  "value": "2026-11-01"
+                },
+                {
+                  "key": "data_fim",
+                  "value": "2026-11-30"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ver janela",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Usuario-Id",
+                "value": "{{adminId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/disponibilidades/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "disponibilidades",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Alterar janela",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Usuario-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/disponibilidades/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "disponibilidades",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hora_inicio\": \"08:00\",\n  \"hora_fim\": \"13:00\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Apagar janela",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Usuario-Id",
+                "value": "{{adminId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/disponibilidades/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "disponibilidades",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Criar janelas em lote (sábados)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Usuario-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/disponibilidades/lote",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "disponibilidades",
+                "lote"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data_inicio\": \"2026-11-01\",\n  \"data_fim\": \"2026-12-31\",\n  \"dias_semana\": [\n    6\n  ],\n  \"hora_inicio\": \"08:00\",\n  \"hora_fim\": \"12:00\",\n  \"capacidade\": 1\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cliente (X-Cliente-Id)",
+      "item": [
+        {
+          "name": "Dias com vaga no mês",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Cliente-Id",
+                "value": "{{clienteId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/disponibilidade/dias?mes=2026-11&servico_id=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "disponibilidade",
+                "dias"
+              ],
+              "query": [
+                {
+                  "key": "mes",
+                  "value": "2026-11"
+                },
+                {
+                  "key": "servico_id",
+                  "value": "1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Horários livres do dia",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Cliente-Id",
+                "value": "{{clienteId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/disponibilidade?data=2026-11-14&servico_id=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "disponibilidade"
+              ],
+              "query": [
+                {
+                  "key": "data",
+                  "value": "2026-11-14"
+                },
+                {
+                  "key": "servico_id",
+                  "value": "1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Criar agendamento",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Cliente-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/agendamentos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "agendamentos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endereco_id\": 1,\n  \"data_hora\": \"2026-11-14T08:00:00-03:00\",\n  \"servicos\": [\n    {\n      \"servico_id\": 1,\n      \"quantidade\": 1\n    }\n  ],\n  \"observacoes\": \"Teste\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Listar meus agendamentos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Cliente-Id",
+                "value": "{{clienteId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/agendamentos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "agendamentos"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ver agendamento",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Cliente-Id",
+                "value": "{{clienteId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/agendamentos/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "agendamentos",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cancelar agendamento",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Cliente-Id",
+                "value": "{{clienteId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/agendamentos/1/cancelar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "agendamentos",
+                "1",
+                "cancelar"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,295 @@
+openapi: 3.0.3
+info:
+  title: Car Wash - Disponibilidade e Agendamento (Dev B)
+  version: 0.1.0
+  description: Trecho do contrato da API com as rotas do módulo de disponibilidade e agendamento.
+servers:
+  - url: http://127.0.0.1:8000/api
+tags:
+  - name: Cliente
+  - name: Admin
+paths:
+  /disponibilidade/dias:
+    get:
+      tags: [Cliente]
+      summary: Dias do mês com horário livre
+      parameters:
+        - { name: mes, in: query, required: true, schema: { type: string, example: "2026-11" } }
+        - { name: servico_id, in: query, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Lista de dias
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        data: { type: string, example: "2026-11-14" }
+                        livres: { type: integer, example: 5 }
+        "422": { $ref: "#/components/responses/Validacao" }
+  /disponibilidade:
+    get:
+      tags: [Cliente]
+      summary: Horários livres de um dia
+      parameters:
+        - { name: data, in: query, required: true, schema: { type: string, example: "2026-11-14" } }
+        - { name: servico_id, in: query, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Horários livres
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Horario" }
+        "422": { $ref: "#/components/responses/Validacao" }
+  /agendamentos:
+    get:
+      tags: [Cliente]
+      summary: Histórico do cliente logado
+      responses:
+        "200":
+          description: Agendamentos do cliente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Agendamento" }
+    post:
+      tags: [Cliente]
+      summary: Cria um agendamento (status pendente)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NovoAgendamento" }
+      responses:
+        "201":
+          description: Criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Agendamento" }
+        "422": { $ref: "#/components/responses/Validacao" }
+  /agendamentos/{id}:
+    get:
+      tags: [Cliente]
+      summary: Detalhe de um agendamento do próprio cliente
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Agendamento
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Agendamento" }
+        "404": { description: Não encontrado (ou pertence a outro cliente) }
+  /agendamentos/{id}/cancelar:
+    patch:
+      tags: [Cliente]
+      summary: Cancela um agendamento (respeita a antecedência mínima)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Cancelado }
+        "409": { description: Status não permite cancelar }
+        "422": { $ref: "#/components/responses/Validacao" }
+  /admin/disponibilidades:
+    get:
+      tags: [Admin]
+      summary: Lista as janelas (filtro opcional por período)
+      parameters:
+        - { name: data_inicio, in: query, schema: { type: string, example: "2026-11-01" } }
+        - { name: data_fim, in: query, schema: { type: string, example: "2026-11-30" } }
+      responses:
+        "200":
+          description: Janelas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Janela" }
+    post:
+      tags: [Admin]
+      summary: Cria uma janela
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NovaJanela" }
+      responses:
+        "201": { description: Criada }
+        "422": { $ref: "#/components/responses/Validacao" }
+  /admin/disponibilidades/{id}:
+    get:
+      tags: [Admin]
+      summary: Detalhe de uma janela
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Janela }
+    put:
+      tags: [Admin]
+      summary: Altera horários, capacidade ou observação (não altera a data)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hora_inicio: { type: string, example: "08:00" }
+                hora_fim: { type: string, example: "12:00" }
+                capacidade: { type: integer }
+                observacao: { type: string }
+      responses:
+        "200": { description: Atualizada }
+        "409": { $ref: "#/components/responses/Conflito" }
+        "422": { $ref: "#/components/responses/Validacao" }
+    delete:
+      tags: [Admin]
+      summary: Apaga uma janela sem agendamentos
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Apagada }
+        "409": { $ref: "#/components/responses/Conflito" }
+  /admin/disponibilidades/lote:
+    post:
+      tags: [Admin]
+      summary: Cria janelas num período, nos dias da semana escolhidos
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Lote" }
+      responses:
+        "201":
+          description: Resultado do lote
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      criadas: { type: integer, example: 8 }
+                      ignoradas:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            data: { type: string }
+                            motivo: { type: string }
+        "422": { $ref: "#/components/responses/Validacao" }
+components:
+  responses:
+    Validacao:
+      description: Dados inválidos
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: { type: string }
+    Conflito:
+      description: A janela possui agendamentos
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+              agendamentos:
+                type: array
+                items: { type: integer }
+  schemas:
+    Horario:
+      type: object
+      properties:
+        inicio: { type: string, example: "2026-11-14T08:00:00-03:00" }
+        fim: { type: string, example: "2026-11-14T09:00:00-03:00" }
+    Janela:
+      type: object
+      properties:
+        id: { type: integer }
+        data: { type: string, example: "2026-11-14" }
+        hora_inicio: { type: string, example: "08:00:00" }
+        hora_fim: { type: string, example: "12:00:00" }
+        capacidade: { type: integer }
+        observacao: { type: string, nullable: true }
+    NovaJanela:
+      type: object
+      required: [data, hora_inicio, hora_fim]
+      properties:
+        data: { type: string, example: "2026-11-14" }
+        hora_inicio: { type: string, example: "08:00" }
+        hora_fim: { type: string, example: "12:00" }
+        capacidade: { type: integer, example: 1 }
+        observacao: { type: string }
+    Lote:
+      type: object
+      required: [data_inicio, data_fim, dias_semana, hora_inicio, hora_fim]
+      properties:
+        data_inicio: { type: string, example: "2026-11-01" }
+        data_fim: { type: string, example: "2026-12-31" }
+        dias_semana:
+          type: array
+          description: 0 = domingo ... 6 = sábado
+          items: { type: integer, example: 6 }
+        hora_inicio: { type: string, example: "08:00" }
+        hora_fim: { type: string, example: "12:00" }
+        capacidade: { type: integer, example: 1 }
+        observacao: { type: string }
+    NovoAgendamento:
+      type: object
+      required: [endereco_id, data_hora, servicos]
+      properties:
+        endereco_id: { type: integer, example: 1 }
+        data_hora: { type: string, example: "2026-11-14T08:00:00-03:00" }
+        servicos:
+          type: array
+          items:
+            type: object
+            required: [servico_id]
+            properties:
+              servico_id: { type: integer, example: 1 }
+              quantidade: { type: integer, example: 1 }
+        observacoes: { type: string }
+    Agendamento:
+      type: object
+      properties:
+        id: { type: integer }
+        status: { type: string, enum: [pendente, confirmado, concluido, cancelado] }
+        data_hora: { type: string }
+        data_hora_fim: { type: string }
+        valor_total: { type: string, example: "100.00" }
+        servicos:
+          type: array
+          items: { type: object }
