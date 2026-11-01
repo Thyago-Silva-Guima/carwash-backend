@@ -1,0 +1,786 @@
+openapi: 3.0.3
+info:
+  title: Car Wash API
+  version: 1.0.0
+  description: |
+    ```
+    npx @stoplight/prism-cli mock docs/openapi.yaml
+    ```
+    Responde em `http://localhost:4010/api/...`. Para forçar um cenário, envie `Prefer: code=422`
+    (status) ou `Prefer: example=nomeDoExemplo`.
+
+    **Convenções**
+    - Tudo é JSON, inclusive erros, exceto o download de anexo.
+    - `422`: `{message, errors}`. `message` é a primeira mensagem de erro; havendo mais, vem o
+      sufixo `(e mais N erros)`. `errors` é campo → lista de mensagens. Campos de arquivo usam a
+      chave `anexos.0`, `anexos.1`...
+    - Rota inexistente: `404 {message: "Recurso não encontrado."}`. Método errado: `405 {message: "Método não permitido."}`.
+    - Rotas protegidas usam `Authorization: Bearer <token>`. O token do cliente (`POST /api/auth/login`
+      ou `/api/auth/register`) só vale nas rotas de cliente, e o da equipe (`POST /api/admin/login`) só
+      nas rotas `/api/admin/*`. Token do tipo errado responde `403 {message: "Acesso negado."}`.
+    - Datas em `Y-m-d`. `horario` é enviado como `HH:MM` e devolvido como `HH:MM:SS` (coluna `time`, sem cast).
+servers:
+  - url: http://localhost:4010
+    description: Mock local
+  - url: http://localhost:8000
+    description: Back local
+tags:
+  - name: Público
+  - name: Autenticação do cliente
+  - name: Endereços do cliente
+    description: Exige Bearer token de cliente. Cada cliente só enxerga os próprios endereços; o de outro cliente responde 404.
+  - name: Autenticação da equipe
+  - name: Admin
+    description: Exige Bearer token.
+paths:
+  /api/servicos:
+    get:
+      tags: [Público]
+      summary: Lista os serviços ativos
+      description: Só `ativo = true`, ordenados por `id`. Sem serviços ativos devolve `[]`.
+      operationId: listarServicos
+      responses:
+        '200':
+          description: Serviços ativos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Servico'}
+              examples:
+                lista:
+                  value:
+                    - {id: 1, nome: Lavagem de Muros e Paredes Externas, descricao: null}
+                    - {id: 2, nome: Lavagem de Portões e Grades, descricao: null}
+                    - {id: 3, nome: Lavagem de Fachadas e Revestimentos, descricao: null}
+                    - {id: 4, nome: Lavagem de Calçadas e Pisos Externos, descricao: null}
+                    - {id: 5, nome: Lavagem de Pedras e Revestimentos, descricao: null}
+                    - {id: 6, nome: Lavagem de Garagens e Áreas de Circulação, descricao: null}
+                    - {id: 7, nome: Lavagem de Áreas de Lazer, descricao: null}
+                    - {id: 8, nome: Lavagem de Áreas PET e Espaços Externos, descricao: null}
+                vazia:
+                  value: []
+  /api/agendamentos:
+    post:
+      tags: [Público]
+      summary: Cria um agendamento
+      description: |
+        Nasce com `status = pendente`. Enviar como `multipart/form-data`; as fotos vão em `anexos[]`.
+        Limite por IP: 3 por minuto e 20 por dia.
+
+        Regras: `telefone` aceita máscara (só os dígitos contam, 10 ou 11); `servico_id` precisa ser
+        de um serviço ativo; `data` de hoje até 90 dias à frente; `data` + `horario` não pode estar no
+        passado; até 5 fotos JPG, PNG ou WebP de no máximo 5 MB cada.
+      operationId: criarAgendamento
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [nome, telefone, endereco, servico_id, data, horario]
+              properties:
+                nome: {type: string, maxLength: 100, example: Maria Souza}
+                telefone: {type: string, example: '(41) 99999-9999'}
+                endereco: {type: string, maxLength: 255, example: 'Rua das Flores, 123, Curitiba'}
+                servico_id: {type: integer, example: 1}
+                data: {type: string, format: date, example: '2026-11-05'}
+                horario: {type: string, pattern: '^\d{2}:\d{2}$', example: '14:30'}
+                observacoes: {type: string, nullable: true, maxLength: 1000, example: Muro com muito limo.}
+                anexos:
+                  type: array
+                  maxItems: 5
+                  items: {type: string, format: binary}
+      responses:
+        '201':
+          description: Agendamento criado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message, id]
+                properties:
+                  message: {type: string}
+                  id: {type: integer}
+              example: {message: Agendamento confirmado com sucesso!, id: 1}
+        '413': {$ref: '#/components/responses/ArquivosGrandes'}
+        '422':
+          description: Dados inválidos
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErroValidacao'}
+              examples:
+                camposInvalidos:
+                  value:
+                    message: Nome é obrigatório (e mais 1 erros)
+                    errors:
+                      nome: [Nome é obrigatório]
+                      telefone: [Telefone inválido]
+                horarioPassado:
+                  value:
+                    message: Escolha um horário que ainda não passou
+                    errors:
+                      horario: [Escolha um horário que ainda não passou]
+                fotoGrande:
+                  value:
+                    message: Cada foto pode ter no máximo 5 MB
+                    errors:
+                      anexos.0: [Cada foto pode ter no máximo 5 MB]
+        '429': {$ref: '#/components/responses/MuitasTentativas'}
+  /api/auth/register:
+    post:
+      tags: [Autenticação do cliente]
+      summary: Cadastra um cliente
+      description: |
+        Cria a conta e já devolve um token (o cliente fica logado). `telefone` aceita máscara (só os
+        dígitos contam, 10 ou 11, com DDD). `email` é salvo em minúsculas e é único. `aceite_termos`
+        precisa ser `true` (LGPD); o servidor grava a data e hora do aceite. Limite por IP: 10 por hora.
+      operationId: registrarCliente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nome, telefone, email, password, aceite_termos]
+              properties:
+                nome: {type: string, minLength: 2, maxLength: 100, example: Maria Souza}
+                telefone: {type: string, example: '(41) 99999-9999'}
+                email: {type: string, format: email, maxLength: 255, example: maria@exemplo.com}
+                password: {type: string, minLength: 8, maxLength: 72, example: senha-segura-123}
+                aceite_termos: {type: boolean, example: true}
+      responses:
+        '201':
+          description: Cliente criado e autenticado
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessaoCliente'}
+              example: {token: '1|k3Jx9TqZpL0mN8vRwYb2cD4eF6gH7iAaBbCcDdEe', cliente: {id: 1, nome: Maria Souza, email: maria@exemplo.com, telefone: '41999999999'}}
+        '422':
+          description: Dados inválidos
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErroValidacao'}
+              examples:
+                emailEmUso:
+                  value:
+                    message: Este e-mail já está cadastrado.
+                    errors: {email: [Este e-mail já está cadastrado.]}
+                semAceite:
+                  value:
+                    message: É necessário aceitar os termos de uso.
+                    errors: {aceite_termos: [É necessário aceitar os termos de uso.]}
+                telefoneInvalido:
+                  value:
+                    message: Informe o telefone com DDD (10 ou 11 dígitos).
+                    errors: {telefone: [Informe o telefone com DDD (10 ou 11 dígitos).]}
+        '429': {$ref: '#/components/responses/MuitasTentativas'}
+  /api/auth/login:
+    post:
+      tags: [Autenticação do cliente]
+      summary: Login do cliente
+      description: |
+        Devolve um token Sanctum e revoga os anteriores (vale só o último login). E-mail inexistente
+        e senha errada respondem igual. Limite por IP: 5 por minuto e 30 por hora (compartilhado com
+        `POST /api/admin/login`).
+      operationId: loginCliente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Credenciais'}
+      responses:
+        '200':
+          description: Autenticado
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessaoCliente'}
+              example: {token: '2|Qw8ErTyUiOpAsDfGhJkLzXcVbNm1234567890aBc', cliente: {id: 1, nome: Maria Souza, email: maria@exemplo.com, telefone: '41999999999'}}
+        '422': {$ref: '#/components/responses/CredenciaisInvalidas'}
+        '429': {$ref: '#/components/responses/MuitasTentativas'}
+  /api/auth/logout:
+    post:
+      tags: [Autenticação do cliente]
+      summary: Encerra a sessão do cliente (revoga o token atual)
+      operationId: logoutCliente
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Token revogado
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Mensagem'}
+              example: {message: Sessão encerrada}
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '403': {$ref: '#/components/responses/AcessoNegado'}
+  /api/auth/me:
+    get:
+      tags: [Autenticação do cliente]
+      summary: Dados do cliente logado
+      description: Serve para restaurar a sessão quando o front recarrega com um token guardado.
+      operationId: clienteLogado
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Cliente logado
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cliente'}
+              example: {id: 1, nome: Maria Souza, email: maria@exemplo.com, telefone: '41999999999'}
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '403': {$ref: '#/components/responses/AcessoNegado'}
+  /api/enderecos:
+    get:
+      tags: [Endereços do cliente]
+      summary: Lista os endereços do cliente logado
+      description: Ordenados por `id`. Sem endereços devolve `[]`.
+      operationId: listarEnderecos
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Endereços do cliente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Endereco'}
+              examples:
+                lista:
+                  value:
+                    - {id: 1, rua: Rua das Flores, numero: '123', bairro: Centro, complemento: null, cidade: Curitiba, cep: '80010000', endereco_completo: 'Rua das Flores, 123 - Centro, Curitiba - CEP 80010-000'}
+                    - {id: 2, rua: Avenida Sete de Setembro, numero: '4500', bairro: Batel, complemento: Apto 12, cidade: Curitiba, cep: '80250210', endereco_completo: 'Avenida Sete de Setembro, 4500, Apto 12 - Batel, Curitiba - CEP 80250-210'}
+                vazia:
+                  value: []
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '403': {$ref: '#/components/responses/AcessoNegado'}
+    post:
+      tags: [Endereços do cliente]
+      summary: Cadastra um endereço para o cliente logado
+      description: |
+        `cep` aceita máscara; só os dígitos contam (8) e é devolvido só com dígitos.
+        `numero` aceita texto ou inteiro e é devolvido como texto. `complemento` é opcional.
+      operationId: criarEndereco
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EnderecoEntrada'}
+      responses:
+        '201':
+          description: Endereço criado
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Endereco'}
+              example: {id: 1, rua: Rua das Flores, numero: '123', bairro: Centro, complemento: null, cidade: Curitiba, cep: '80010000', endereco_completo: 'Rua das Flores, 123 - Centro, Curitiba - CEP 80010-000'}
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '403': {$ref: '#/components/responses/AcessoNegado'}
+        '422': {$ref: '#/components/responses/EnderecoInvalido'}
+  /api/enderecos/{endereco}:
+    parameters:
+      - {name: endereco, in: path, required: true, schema: {type: integer}, example: 1}
+    get:
+      tags: [Endereços do cliente]
+      summary: Detalhe de um endereço do cliente logado
+      operationId: obterEndereco
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Endereço
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Endereco'}
+              example: {id: 1, rua: Rua das Flores, numero: '123', bairro: Centro, complemento: null, cidade: Curitiba, cep: '80010000', endereco_completo: 'Rua das Flores, 123 - Centro, Curitiba - CEP 80010-000'}
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '403': {$ref: '#/components/responses/AcessoNegado'}
+        '404': {$ref: '#/components/responses/NaoEncontrado'}
+    put:
+      tags: [Endereços do cliente]
+      summary: Substitui os dados de um endereço do cliente logado
+      description: Os mesmos campos do cadastro. Um `complemento` não enviado é limpo.
+      operationId: atualizarEndereco
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EnderecoEntrada'}
+      responses:
+        '200':
+          description: Endereço atualizado
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Endereco'}
+              example: {id: 1, rua: Rua Nova, numero: '123', bairro: Centro, complemento: null, cidade: Curitiba, cep: '81000111', endereco_completo: 'Rua Nova, 123 - Centro, Curitiba - CEP 81000-111'}
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '403': {$ref: '#/components/responses/AcessoNegado'}
+        '404': {$ref: '#/components/responses/NaoEncontrado'}
+        '422': {$ref: '#/components/responses/EnderecoInvalido'}
+    delete:
+      tags: [Endereços do cliente]
+      summary: Remove um endereço do cliente logado
+      description: Não remove endereço que já foi usado em algum agendamento (`409`).
+      operationId: removerEndereco
+      security: [{bearerAuth: []}]
+      responses:
+        '204': {description: Endereço removido, sem corpo}
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '403': {$ref: '#/components/responses/AcessoNegado'}
+        '404': {$ref: '#/components/responses/NaoEncontrado'}
+        '409':
+          description: Endereço usado em agendamentos
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Mensagem'}
+              example: {message: Este endereço já foi usado em agendamentos e não pode ser removido.}
+  /api/admin/login:
+    post:
+      tags: [Autenticação da equipe]
+      summary: Login da equipe (dono e funcionários)
+      description: |
+        Devolve um token Sanctum e revoga os anteriores (vale só o último login). E-mail inexistente
+        e senha errada respondem igual. Limite por IP: 5 por minuto e 30 por hora.
+      operationId: loginAdmin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Credenciais'}
+      responses:
+        '200':
+          description: Autenticado
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessaoAdmin'}
+              example: {token: '3|Zx9CvBnMaSdFgHjKlQwErTyUiOp0987654321dEf', usuario: {id: 1, nome: Administrador, email: admin@carwash.com, perfil: admin}}
+        '422': {$ref: '#/components/responses/CredenciaisInvalidas'}
+        '429': {$ref: '#/components/responses/MuitasTentativas'}
+  /api/admin/logout:
+    post:
+      tags: [Autenticação da equipe]
+      summary: Encerra a sessão da equipe (revoga o token atual)
+      operationId: logoutAdmin
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Token revogado
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Mensagem'}
+              example: {message: Sessão encerrada}
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '403': {$ref: '#/components/responses/AcessoNegado'}
+  /api/admin/me:
+    get:
+      tags: [Autenticação da equipe]
+      summary: Dados do usuário da equipe logado
+      operationId: adminLogado
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Usuário logado
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Usuario'}
+              example: {id: 1, nome: Administrador, email: admin@carwash.com, perfil: admin}
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '403': {$ref: '#/components/responses/AcessoNegado'}
+  /api/anexos/{anexo}:
+    get:
+      tags: [Público]
+      summary: Baixa a foto de um agendamento
+      description: |
+        Só funciona com a URL assinada devolvida em `anexos[].url` (vale 10 minutos); sem token.
+        Responde com o arquivo, não com JSON.
+      operationId: baixarAnexo
+      parameters:
+        - {name: anexo, in: path, required: true, schema: {type: integer}, example: 7}
+        - {name: expires, in: query, required: true, schema: {type: integer}, example: 1792324200}
+        - {name: signature, in: query, required: true, schema: {type: string}, example: 3f9a1c7e5b2d4a6c8e0f1b3d5a7c9e2f4b6d8a0c1e3f5a7b9d2c4e6f8a0b1c3d}
+      responses:
+        '200':
+          description: Imagem
+          headers:
+            X-Content-Type-Options: {schema: {type: string, example: nosniff}}
+            Cache-Control: {schema: {type: string, example: 'private, max-age=300'}}
+          content:
+            image/jpeg: {schema: {type: string, format: binary}}
+            image/png: {schema: {type: string, format: binary}}
+            image/webp: {schema: {type: string, format: binary}}
+        '403':
+          description: Assinatura inválida ou expirada
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Mensagem'}
+              example: {message: Link inválido ou expirado.}
+        '404': {$ref: '#/components/responses/NaoEncontrado'}
+  /api/admin/agendamentos:
+    get:
+      tags: [Admin]
+      summary: Lista agendamentos (paginado)
+      description: 20 por página, ordenados por data e horário. Traz `servico` (id e nome) e `anexos_count`.
+      operationId: listarAgendamentos
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/StatusAgendamento'}}
+        - {name: data, in: query, description: Dia exato (Y-m-d)., schema: {type: string, pattern: '^\d{4}-\d{2}-\d{2}$'}, example: '2026-11-05'}
+        - {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+      responses:
+        '200':
+          description: Página de agendamentos
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PaginaAgendamentos'}
+              examples:
+                pagina:
+                  value:
+                    current_page: 1
+                    data:
+                      - {id: 1, nome: Maria Souza, telefone: '41999999999', endereco: 'Rua das Flores, 123, Curitiba', servico_id: 1, data: '2026-11-05', horario: '14:30:00', status: pendente, observacoes: Muro com muito limo., created_at: '2026-10-18T12:00:00.000000Z', updated_at: '2026-10-18T12:00:00.000000Z', servico: {id: 1, nome: Lavagem de Muros e Paredes Externas}, anexos_count: 2}
+                    first_page_url: http://localhost:8000/api/admin/agendamentos?page=1
+                    from: 1
+                    last_page: 1
+                    last_page_url: http://localhost:8000/api/admin/agendamentos?page=1
+                    links:
+                      - {url: null, label: '&laquo; Anterior', active: false}
+                      - {url: 'http://localhost:8000/api/admin/agendamentos?page=1', label: '1', active: true}
+                      - {url: null, label: 'Próximo &raquo;', active: false}
+                    next_page_url: null
+                    path: http://localhost:8000/api/admin/agendamentos
+                    per_page: 20
+                    prev_page_url: null
+                    to: 1
+                    total: 1
+                vazia:
+                  value:
+                    current_page: 1
+                    data: []
+                    first_page_url: http://localhost:8000/api/admin/agendamentos?page=1
+                    from: null
+                    last_page: 1
+                    last_page_url: http://localhost:8000/api/admin/agendamentos?page=1
+                    links:
+                      - {url: null, label: '&laquo; Anterior', active: false}
+                      - {url: 'http://localhost:8000/api/admin/agendamentos?page=1', label: '1', active: true}
+                      - {url: null, label: 'Próximo &raquo;', active: false}
+                    next_page_url: null
+                    path: http://localhost:8000/api/admin/agendamentos
+                    per_page: 20
+                    prev_page_url: null
+                    to: null
+                    total: 0
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '422':
+          description: Filtro inválido
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErroValidacao'}
+              examples:
+                statusInvalido:
+                  value:
+                    message: O estado selecionado é inválido.
+                    errors: {status: [O estado selecionado é inválido.]}
+                dataInvalida:
+                  value:
+                    message: A data indicada para o campo data não respeita o formato Y-m-d.
+                    errors: {data: [A data indicada para o campo data não respeita o formato Y-m-d.]}
+  /api/admin/agendamentos/{agendamento}:
+    parameters:
+      - {name: agendamento, in: path, required: true, schema: {type: integer}, example: 1}
+    get:
+      tags: [Admin]
+      summary: Detalha um agendamento
+      description: Traz o serviço completo e as fotos, cada uma com URL assinada válida por 10 minutos.
+      operationId: obterAgendamento
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Agendamento com anexos
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AgendamentoDetalhe'}
+              examples:
+                detalhe:
+                  value: {id: 1, nome: Maria Souza, telefone: '41999999999', endereco: 'Rua das Flores, 123, Curitiba', servico_id: 1, data: '2026-11-05', horario: '14:30:00', status: pendente, observacoes: Muro com muito limo., created_at: '2026-10-18T12:00:00.000000Z', updated_at: '2026-10-18T12:00:00.000000Z', servico: {id: 1, nome: Lavagem de Muros e Paredes Externas, descricao: null, ativo: true, created_at: '2026-10-14T10:00:00.000000Z', updated_at: '2026-10-14T10:00:00.000000Z'}, anexos: [{id: 7, nome: muro.jpg, tamanho: 482113, url: 'http://localhost:8000/api/anexos/7?expires=1792324200&signature=3f9a1c7e5b2d4a6c8e0f1b3d5a7c9e2f4b6d8a0c1e3f5a7b9d2c4e6f8a0b1c3d'}]}
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '404': {$ref: '#/components/responses/NaoEncontrado'}
+    patch:
+      tags: [Admin]
+      summary: Altera status e/ou observações
+      description: Os dois campos são opcionais; corpo vazio responde 200 sem alterar nada. Não há regra de transição entre status. Devolve o mesmo formato do detalhe.
+      operationId: atualizarAgendamento
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: {$ref: '#/components/schemas/StatusAgendamento'}
+                observacoes: {type: string, nullable: true, maxLength: 2000}
+            examples:
+              confirmar: {value: {status: confirmado}}
+              observacao: {value: {observacoes: Cliente pediu para chegar após as 14h.}}
+      responses:
+        '200':
+          description: Agendamento atualizado
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AgendamentoDetalhe'}
+              examples:
+                confirmado:
+                  value: {id: 1, nome: Maria Souza, telefone: '41999999999', endereco: 'Rua das Flores, 123, Curitiba', servico_id: 1, data: '2026-11-05', horario: '14:30:00', status: confirmado, observacoes: Muro com muito limo., created_at: '2026-10-18T12:00:00.000000Z', updated_at: '2026-10-18T13:10:00.000000Z', servico: {id: 1, nome: Lavagem de Muros e Paredes Externas, descricao: null, ativo: true, created_at: '2026-10-14T10:00:00.000000Z', updated_at: '2026-10-14T10:00:00.000000Z'}, anexos: [{id: 7, nome: muro.jpg, tamanho: 482113, url: 'http://localhost:8000/api/anexos/7?expires=1792324200&signature=3f9a1c7e5b2d4a6c8e0f1b3d5a7c9e2f4b6d8a0c1e3f5a7b9d2c4e6f8a0b1c3d'}]}
+        '401': {$ref: '#/components/responses/NaoAutenticado'}
+        '404': {$ref: '#/components/responses/NaoEncontrado'}
+        '422':
+          description: Dados inválidos
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErroValidacao'}
+              examples:
+                statusInvalido:
+                  value:
+                    message: O estado selecionado é inválido.
+                    errors: {status: [O estado selecionado é inválido.]}
+                observacoesLongas:
+                  value:
+                    message: O campo observacoes não deve conter mais de 2000 caracteres.
+                    errors: {observacoes: [O campo observacoes não deve conter mais de 2000 caracteres.]}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, description: 'Token devolvido por `POST /api/auth/login` ou `POST /api/auth/register` (cliente), ou por `POST /api/admin/login` (equipe).'}
+  schemas:
+    Mensagem:
+      type: object
+      required: [message]
+      properties:
+        message: {type: string}
+    ErroValidacao:
+      type: object
+      required: [message, errors]
+      properties:
+        message: {type: string}
+        errors:
+          type: object
+          additionalProperties: {type: array, items: {type: string}}
+    Credenciais:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, format: email, maxLength: 255, example: maria@exemplo.com}
+        password: {type: string, maxLength: 255, example: senha-segura-123}
+    Cliente:
+      type: object
+      required: [id, nome, email, telefone]
+      properties:
+        id: {type: integer}
+        nome: {type: string}
+        email: {type: string, format: email}
+        telefone: {type: string, description: Só dígitos (10 ou 11)., example: '41999999999'}
+    Usuario:
+      type: object
+      required: [id, nome, email, perfil]
+      properties:
+        id: {type: integer}
+        nome: {type: string}
+        email: {type: string, format: email}
+        perfil: {type: string, example: admin}
+    SessaoCliente:
+      type: object
+      required: [token, cliente]
+      properties:
+        token: {type: string}
+        cliente: {$ref: '#/components/schemas/Cliente'}
+    SessaoAdmin:
+      type: object
+      required: [token, usuario]
+      properties:
+        token: {type: string}
+        usuario: {$ref: '#/components/schemas/Usuario'}
+    Endereco:
+      type: object
+      required: [id, rua, numero, bairro, complemento, cidade, cep, endereco_completo]
+      properties:
+        id: {type: integer}
+        rua: {type: string}
+        numero: {type: string}
+        bairro: {type: string}
+        complemento: {type: string, nullable: true}
+        cidade: {type: string}
+        cep: {type: string, description: Só dígitos (8)., example: '80010000'}
+        endereco_completo: {type: string, description: Texto pronto para exibir, com o CEP formatado., example: 'Rua das Flores, 123 - Centro, Curitiba - CEP 80010-000'}
+    EnderecoEntrada:
+      type: object
+      required: [rua, numero, bairro, cidade, cep]
+      properties:
+        rua: {type: string, minLength: 2, maxLength: 150, example: Rua das Flores}
+        numero: {type: string, maxLength: 20, example: '123'}
+        bairro: {type: string, maxLength: 100, example: Centro}
+        complemento: {type: string, nullable: true, maxLength: 100, example: Apto 12}
+        cidade: {type: string, maxLength: 100, example: Curitiba}
+        cep: {type: string, description: Aceita máscara; só os 8 dígitos contam., example: 80010-000}
+    StatusAgendamento:
+      type: string
+      enum: [pendente, confirmado, concluido, cancelado]
+    Servico:
+      type: object
+      required: [id, nome, descricao]
+      properties:
+        id: {type: integer}
+        nome: {type: string}
+        descricao: {type: string, nullable: true}
+    ServicoCompleto:
+      allOf:
+        - $ref: '#/components/schemas/Servico'
+        - type: object
+          required: [ativo, created_at, updated_at]
+          properties:
+            ativo: {type: boolean}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+    AgendamentoBase:
+      type: object
+      required: [id, nome, telefone, endereco, servico_id, data, horario, status, observacoes, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        nome: {type: string}
+        telefone: {type: string, description: Só dígitos (10 ou 11)., example: '41999999999'}
+        endereco: {type: string}
+        servico_id: {type: integer}
+        data: {type: string, format: date}
+        horario: {type: string, example: '14:30:00'}
+        status: {$ref: '#/components/schemas/StatusAgendamento'}
+        observacoes: {type: string, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AgendamentoListado:
+      allOf:
+        - $ref: '#/components/schemas/AgendamentoBase'
+        - type: object
+          required: [servico, anexos_count]
+          properties:
+            servico:
+              type: object
+              required: [id, nome]
+              properties:
+                id: {type: integer}
+                nome: {type: string}
+            anexos_count: {type: integer}
+    AgendamentoDetalhe:
+      allOf:
+        - $ref: '#/components/schemas/AgendamentoBase'
+        - type: object
+          required: [servico, anexos]
+          properties:
+            servico: {$ref: '#/components/schemas/ServicoCompleto'}
+            anexos:
+              type: array
+              items: {$ref: '#/components/schemas/Anexo'}
+    Anexo:
+      type: object
+      required: [id, nome, tamanho, url]
+      properties:
+        id: {type: integer}
+        nome: {type: string, description: Nome original do arquivo.}
+        tamanho: {type: integer, description: Bytes.}
+        url: {type: string, format: uri, description: URL assinada, válida por 10 minutos.}
+    PaginaAgendamentos:
+      type: object
+      required: [current_page, data, first_page_url, from, last_page, last_page_url, links, next_page_url, path, per_page, prev_page_url, to, total]
+      properties:
+        current_page: {type: integer}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/AgendamentoListado'}
+        first_page_url: {type: string}
+        from: {type: integer, nullable: true}
+        last_page: {type: integer}
+        last_page_url: {type: string}
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              url: {type: string, nullable: true}
+              label: {type: string}
+              active: {type: boolean}
+        next_page_url: {type: string, nullable: true}
+        path: {type: string}
+        per_page: {type: integer}
+        prev_page_url: {type: string, nullable: true}
+        to: {type: integer, nullable: true}
+        total: {type: integer}
+  responses:
+    NaoAutenticado:
+      description: Token ausente, inválido ou revogado
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Mensagem'}
+          example: {message: Não autenticado.}
+    AcessoNegado:
+      description: O token é válido, mas de outro tipo de conta (cliente x equipe)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Mensagem'}
+          example: {message: Acesso negado.}
+    CredenciaisInvalidas:
+      description: Campos inválidos ou credenciais incorretas
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErroValidacao'}
+          examples:
+            credenciais:
+              value:
+                message: E-mail ou senha inválidos
+                errors: {email: [E-mail ou senha inválidos]}
+            camposVazios:
+              value:
+                message: É obrigatória a indicação de um valor para o campo e-mail. (e mais 1 erros)
+                errors:
+                  email: [É obrigatória a indicação de um valor para o campo e-mail.]
+                  password: [É obrigatória a indicação de um valor para o campo senha.]
+    EnderecoInvalido:
+      description: Campos inválidos
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErroValidacao'}
+          examples:
+            camposVazios:
+              value:
+                message: É obrigatória a indicação de um valor para o campo rua. (e mais 4 erros)
+                errors:
+                  rua: [É obrigatória a indicação de um valor para o campo rua.]
+                  numero: [É obrigatória a indicação de um valor para o campo número.]
+                  bairro: [É obrigatória a indicação de um valor para o campo bairro.]
+                  cidade: [É obrigatória a indicação de um valor para o campo cidade.]
+                  cep: [É obrigatória a indicação de um valor para o campo CEP.]
+            cepInvalido:
+              value:
+                message: Informe o CEP com 8 dígitos.
+                errors: {cep: [Informe o CEP com 8 dígitos.]}
+    NaoEncontrado:
+      description: Recurso não encontrado
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Mensagem'}
+          example: {message: Recurso não encontrado.}
+    ArquivosGrandes:
+      description: Requisição acima do limite do servidor
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Mensagem'}
+          example: {message: Os arquivos enviados excedem o tamanho máximo permitido.}
+    MuitasTentativas:
+      description: Limite de tentativas excedido
+      headers:
+        Retry-After: {description: Segundos até poder tentar de novo., schema: {type: integer, example: 42}}
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [message, retry_after]
+            properties:
+              message: {type: string}
+              retry_after: {type: integer, nullable: true}
+          example: {message: Muitas tentativas. Tente novamente em instantes., retry_after: 42}

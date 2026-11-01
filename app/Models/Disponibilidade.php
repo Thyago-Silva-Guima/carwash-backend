@@ -7,21 +7,26 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** Janela de atendimento cadastrada pelo dono. */
+/** Janela de atendimento cadastrada pelo dono (dono: Dev B). */
 class Disponibilidade extends Model
 {
     protected $table = 'disponibilidade';
+
     public $timestamps = false;
-    protected $guarded = [];
 
-    protected $casts = [
-        'data' => 'date',
-        'capacidade' => 'integer',
-    ];
+    protected $fillable = ['data', 'hora_inicio', 'hora_fim', 'capacidade', 'observacao', 'usuario_id'];
 
-    public function criador(): BelongsTo
+    protected function casts(): array
     {
-        return $this->belongsTo(Usuario::class, 'usuario_id');
+        return [
+            'data' => 'date:Y-m-d',
+            'capacidade' => 'integer',
+        ];
+    }
+
+    public function usuario(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'usuario_id');
     }
 
     public function scopeDoDia(Builder $query, $data): Builder

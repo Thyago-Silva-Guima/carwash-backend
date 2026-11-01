@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Throwable;
 
 class DisponibilidadeService
@@ -232,7 +233,7 @@ class DisponibilidadeService
 
     /**
      * Intervalos ocupados na agenda externa (Google).
-     * Se ela falhar, usamos só o banco e registramos um aviso.
+     * Uma falha externa não pode ser interpretada como agenda livre.
      */
     private function ocupadosExternos(Carbon $inicio, Carbon $fim): array
     {
@@ -241,9 +242,9 @@ class DisponibilidadeService
                 ->map(fn ($o) => [$o['inicio'], $o['fim']])
                 ->all();
         } catch (Throwable $e) {
-            Log::warning('Agenda externa indisponível; usando só o banco.', ['erro' => $e->getMessage()]);
+            Log::warning('Agenda externa indisponível.', ['exception' => $e::class]);
 
-            return [];
+            throw new HttpException(503, 'Não foi possível consultar a agenda externa.', $e);
         }
     }
 
