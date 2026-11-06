@@ -19,8 +19,14 @@ class CriarEventoGoogle implements ShouldQueue
         return [10, 30, 60, 120];
     }
 
-    public function handle(AgendamentoConfirmado $event, GoogleCalendarService $calendar): void
+    public function __construct(private readonly GoogleCalendarService $calendar)
     {
+    }
+
+    public function handle(AgendamentoConfirmado $event): void
+    {
+        $calendar = $this->calendar;
+
         $agendamento = Agendamento::find($event->agendamento->id);
 
         if (! $agendamento || $agendamento->status !== Agendamento::STATUS_CONFIRMADO) {

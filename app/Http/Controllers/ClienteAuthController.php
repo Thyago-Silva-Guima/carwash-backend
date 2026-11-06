@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\AutenticaPorSenha;
+use App\Http\Requests\AtualizarClienteRequest;
 use App\Http\Requests\RegistrarClienteRequest;
 use App\Models\Cliente;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 
 class ClienteAuthController extends Controller
 {
@@ -53,6 +55,31 @@ class ClienteAuthController extends Controller
     public function me(Request $request): JsonResponse
     {
         return response()->json($this->dados($request->user()));
+    }
+
+    public function atualizar(AtualizarClienteRequest $request): JsonResponse
+    {
+        /** @var Cliente $cliente */
+        $cliente = $request->user();
+        $dados = $request->validated();
+
+        $alteraCredenciais = $request->alteraCredenciais();
+
+        $atualizacoes = Arr::only($dados, ['nome', 'email', 'telefone']);
+
+        if (filled($dados['senha'] ?? null)) {
+            $atualizacoes['senha_hash'] = $dados['senha'];
+        }
+
+        $cliente->update($atualizacoes);
+
+        if ($alteraCredenciais) {
+            $cliente->tokens()
+                ->where('id', '!=', $cliente->currentAccessToken()->getKey())
+                ->delete();
+        }
+
+        return response()->json($this->dados($cliente->fresh()));
     }
 
     private function dados(Cliente $cliente): array

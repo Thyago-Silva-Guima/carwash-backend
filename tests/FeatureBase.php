@@ -97,12 +97,18 @@ abstract class FeatureBase extends TestCase
     {
         $token = Cliente::findOrFail($id)->createToken('cliente')->plainTextToken;
 
+        // Zera o guard em cache: sem isso, a 2ª identidade do teste herda o usuário da 1ª.
+        app('auth')->forgetGuards();
+
         return $this->withToken($token)->withHeaders(['Accept' => 'application/json']);
     }
 
     protected function comoUsuario(int $id)
     {
         $token = User::findOrFail($id)->createToken('admin')->plainTextToken;
+
+        // Zera o guard em cache: sem isso, a 2ª identidade do teste herda o usuário da 1ª.
+        app('auth')->forgetGuards();
 
         return $this->withToken($token)->withHeaders(['Accept' => 'application/json']);
     }
