@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Agendamento;
 
 use App\Http\Controllers\Controller;
+use App\Models\Agendamento;
 use App\Http\Requests\Agendamento\StoreAgendamentoRequest;
 use App\Services\Agendamento\AgendamentoService;
 use Illuminate\Http\Request;
@@ -23,20 +24,26 @@ class AgendamentoController extends Controller
         return response()->json(['data' => $lista]);
     }
 
-    // Busca só entre os agendamentos do próprio cliente: o de outro cliente dá 404.
     public function show(Request $request, int $id)
     {
         $agendamento = $request->user()->agendamentos()
-            ->with(['servicos', 'endereco'])
+            ->with(['servicos', 'endereco', 'anexos'])
             ->findOrFail($id);
 
-        return response()->json(['data' => $agendamento]);
+        return response()->json(['data' => $this->comAnexos($agendamento)]);
     }
 
     public function store(StoreAgendamentoRequest $request)
     {
         $agendamento = $this->agendamentos->criar($request->user(), $request->validated());
 
-        return response()->json(['data' => $agendamento->load('servicos')], 201);
+        return response()->json(['data' => $this->comAnexos($agendamento)], 201);
+    }
+
+    private function comAnexos(Agendamento $agendamento): array
+    {
+        return array_merge($agendamento->toArray(), [
+            'anexos' => $agendamento->anexos->map->paraResposta()->all(),
+        ]);
     }
 }

@@ -15,6 +15,7 @@ Route::prefix('auth')->group(function () {
     Route::middleware(['auth:sanctum', 'perfil:cliente'])->group(function () {
         Route::post('/logout', [ClienteAuthController::class, 'logout']);
         Route::get('/me', [ClienteAuthController::class, 'me']);
+        Route::put('/me', [ClienteAuthController::class, 'atualizar']);
     });
 });
 

@@ -8,8 +8,11 @@ use App\Models\Cliente;
 use App\Models\Disponibilidade;
 use App\Models\Servico;
 use Carbon\Carbon;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class AgendamentoService
 {
@@ -21,16 +24,17 @@ class AgendamentoService
      * Cria um agendamento "pendente".
      *
      * @param array $dados já validados por StoreAgendamentoRequest:
-     *   endereco_id, data_hora, servicos[{servico_id, quantidade}], observacoes
+     *   endereco_id, data_hora, servicos[{servico_id, quantidade}], observacoes, anexos[UploadedFile] (opcional)
      */
     public function criar(Cliente $cliente, array $dados): Agendamento
     {
+        $anexos = $dados['anexos'] ?? [];
+
         $itens = collect($dados['servicos'])->map(fn ($i) => [
             'servico_id' => (int) $i['servico_id'],
             'quantidade' => (int) ($i['quantidade'] ?? 1),
         ]);
 
-        // Preço e duração vêm SEMPRE do banco, nunca do que o front enviou.
         $servicos = Servico::whereIn('id', $itens->pluck('servico_id'))->get()->keyBy('id');
 
         $duracao = 0;
@@ -42,7 +46,6 @@ class AgendamentoService
             $centavos += (int) round(((float) $servico->preco_base) * 100) * $item['quantidade'];
         }
 
-        // O front manda com fuso (ex.: -03:00); no banco guardamos no fuso do app.
         $inicio = Carbon::parse($dados['data_hora'])
             ->setTimezone(config('app.timezone'))
             ->second(0);
@@ -50,38 +53,60 @@ class AgendamentoService
 
         $this->validarPrazos($inicio);
 
-        // 1ª checagem, já com a agenda externa (Google), ANTES de travar o banco.
         $this->exigirHorarioLivre($inicio, $duracao, true);
 
-        return DB::transaction(function () use ($cliente, $dados, $itens, $servicos, $inicio, $fim, $duracao, $centavos) {
-            // Trava as janelas do dia: dois pedidos para o mesmo dia passam um de cada vez.
-            Disponibilidade::doDia($inicio->toDateString())->lockForUpdate()->get();
+        $arquivosSalvos = [];
 
-            // 2ª checagem, agora protegida pelo lock (só banco, rápida).
-            $this->exigirHorarioLivre($inicio, $duracao, false);
+        try {
+            return DB::transaction(function () use ($cliente, $dados, $itens, $servicos, $inicio, $fim, $duracao, $centavos, &$arquivosSalvos) {
+                Disponibilidade::doDia($inicio->toDateString())->lockForUpdate()->get();
 
-            $agendamento = Agendamento::create([
-                'cliente_id' => $cliente->id,
-                'endereco_id' => $dados['endereco_id'],
-                'data_hora' => $inicio,
-                'data_hora_fim' => $fim,
-                'status' => Agendamento::STATUS_PENDENTE,
-                'valor_total' => number_format($centavos / 100, 2, '.', ''),
-                'observacoes' => $dados['observacoes'] ?? null,
-            ]);
+                $this->exigirHorarioLivre($inicio, $duracao, false);
 
-            foreach ($itens as $item) {
-                $agendamento->servicos()->attach($item['servico_id'], [
-                    'quantidade' => $item['quantidade'],
-                    'preco_unitario' => $servicos[$item['servico_id']]->preco_base,
+                $agendamento = Agendamento::create([
+                    'cliente_id' => $cliente->id,
+                    'endereco_id' => $dados['endereco_id'],
+                    'data_hora' => $inicio,
+                    'data_hora_fim' => $fim,
+                    'status' => Agendamento::STATUS_PENDENTE,
+                    'valor_total' => number_format($centavos / 100, 2, '.', ''),
+                    'observacoes' => $dados['observacoes'] ?? null,
                 ]);
-            }
 
-            return $agendamento->load('servicos');
-        });
+                foreach ($itens as $item) {
+                    $agendamento->servicos()->attach($item['servico_id'], [
+                        'quantidade' => $item['quantidade'],
+                        'preco_unitario' => $servicos[$item['servico_id']]->preco_base,
+                    ]);
+                }
+
+                foreach ($anexos as $arquivo) {
+                    $arquivosSalvos[] = $this->salvarAnexo($agendamento, $arquivo);
+                }
+
+                return $agendamento->load('servicos', 'anexos');
+            });
+        } catch (Throwable $e) {
+            Storage::disk('local')->delete($arquivosSalvos);
+
+            throw $e;
+        }
     }
 
-    /** Cancelamento feito pelo cliente. */
+    private function salvarAnexo(Agendamento $agendamento, UploadedFile $arquivo): string
+    {
+        $caminho = $arquivo->store("anexos/{$agendamento->id}", 'local');
+
+        $agendamento->anexos()->create([
+            'url' => $caminho,
+            'nome_original' => $arquivo->getClientOriginalName(),
+            'mime_type' => $arquivo->getMimeType(),
+            'tamanho' => $arquivo->getSize(),
+        ]);
+
+        return $caminho;
+    }
+
     public function cancelar(Agendamento $agendamento): Agendamento
     {
         if (! in_array($agendamento->status, Agendamento::STATUS_QUE_BLOQUEIAM, true)) {
@@ -101,7 +126,6 @@ class AgendamentoService
             'motivo' => 'Cancelado pelo cliente',
         ]);
 
-        // O Dev C escuta este evento para remover o evento do Google (se existir).
         AgendamentoCancelado::dispatch($agendamento);
 
         return $agendamento->fresh();
