@@ -1,86 +1,100 @@
 # Car Wash - Back-end
 
-> **Projeto unificado (Dev A + B + C).** Leia primeiro o [INTEGRACAO.md](INTEGRACAO.md): como rodar, quem é dono de quê, o que foi alterado e o que falta.
+API REST para agendamento de serviços de lavagem de áreas externas (muros, portões, fachadas, calçadas, garagens e afins). Feita em **Laravel 13**, com autenticação por token Bearer via **Laravel Sanctum**. Todas as respostas são JSON, e as mensagens de validação estão em português (`pt_BR`).
 
-API REST de agendamentos para uma empresa de lavagem de áreas externas (muros, portões, fachadas, calçadas, garagens etc.), feita em **Laravel 13** com autenticação por token via **Laravel Sanctum**. Todas as respostas são em JSON e as mensagens de validação estão em português (`pt_BR`).
+O projeto reúne três módulos, de três responsáveis diferentes:
 
-> Este README descreve o **estado atual do código**. Veja a seção [Estado atual](#estado-atual) para saber o que já está implementado e o que existe apenas no contrato OpenAPI.
+| Módulo | Cobre |
+| --- | --- |
+| Contas e cadastros | Login e cadastro de cliente, login da equipe, serviços, endereços, migrations e seeders |
+| Disponibilidade e agendamento | Janelas de atendimento, horários livres, criação e cancelamento de agendamentos pelo cliente |
+| Painel e Google Agenda | Pedidos da equipe (confirmar, recusar, concluir) e sincronização com o Google Agenda |
+
+O histórico de integração e as decisões de cada módulo estão em [INTEGRACAO.md](INTEGRACAO.md). Este README descreve o estado atual do código.
 
 ## Sumário
 
 - [Estado atual](#estado-atual)
 - [Stack](#stack)
 - [Requisitos](#requisitos)
-- [Instalação passo a passo](#instalação-passo-a-passo)
-- [Como copiar o `.env`](#como-copiar-o-env)
-- [Variáveis do `.env`](#variáveis-do-env)
-- [Banco de dados e migrations](#banco-de-dados-e-migrations)
-- [Seeders (serviços e admin)](#seeders-serviços-e-admin)
-- [Como rodar o servidor](#como-rodar-o-servidor)
-- [Endpoints implementados](#endpoints-implementados)
-- [Documentação OpenAPI e mock da API](#documentação-openapi-e-mock-da-api)
-- [Testes](#testes)
+- [Instalação](#instalação)
+- [Configuração (`.env`)](#configuração-env)
+- [Banco de dados](#banco-de-dados)
+- [Seeders e usuários](#seeders-e-usuários)
+- [Rodando o servidor](#rodando-o-servidor)
+- [Autenticação e perfis](#autenticação-e-perfis)
+- [Endpoints](#endpoints)
+- [Formato das respostas e erros](#formato-das-respostas-e-erros)
+- [Regras de negócio](#regras-de-negócio)
+- [Google Agenda](#google-agenda)
+- [Documentação da API e mock](#documentação-da-api-e-mock)
+- [Testes e qualidade de código](#testes-e-qualidade-de-código)
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Problemas comuns](#problemas-comuns)
+- [Pendências conhecidas](#pendências-conhecidas)
 - [Licença](#licença)
-
----
 
 ## Estado atual
 
 | Área | Situação |
 | --- | --- |
-| Login e logout do admin (Sanctum) | Implementado e testado |
-| `GET /api/servicos` (lista pública de serviços ativos) | Implementado e testado |
-| Rate limit no login, CORS, erros padronizados em JSON | Implementado e testado |
-| Tabelas, models e enum de agendamentos e anexos | Implementado (migrations, models, `StatusAgendamento`) |
-| Criar agendamento (`POST /api/agendamentos`) | **Só no contrato OpenAPI**: sem rota/controller ainda |
-| Download de anexo por URL assinada (`GET /api/anexos/{anexo}`) | **Só no contrato OpenAPI**: rota `anexos.show` ainda não existe |
-| Rotas admin de agendamentos (`/api/admin/agendamentos...`) | **Só no contrato OpenAPI**: sem rota/controller ainda |
+| Cadastro, login, logout e dados do cliente (`/api/auth/*`), incluindo edição de nome, e-mail, telefone e senha | Implementado e testado |
+| Login, logout e dados da equipe (`/api/admin/*`) | Implementado e testado |
+| Endereços do cliente (`/api/enderecos`) | Implementado e testado |
+| Serviços ativos (`GET /api/servicos`) | Implementado e testado |
+| Horários livres e dias com vaga (`/api/disponibilidade*`) | Implementado e testado |
+| Criar, listar, consultar e cancelar agendamentos pelo cliente (`/api/agendamentos*`) | Implementado e testado |
+| Painel da equipe: listar, consultar, confirmar, recusar e concluir pedidos (`/api/admin/agendamentos*`) | Implementado e testado |
+| Janelas de atendimento e cadastro em lote (`/api/admin/disponibilidades*`) | Implementado e testado |
+| Sincronização com o Google Agenda | Implementado. Só fica ativa quando há Google configurado (ver [Google Agenda](#google-agenda)) |
+| Upload de fotos dos agendamentos e download por URL assinada | **Pendente**: a tabela e o model existem, mas não há rota nem controller |
+| Redefinição de senha do cliente pela equipe | **Pendente** |
 
-Os endpoints que só existem no contrato podem ser consumidos pelo front através do [mock com Prism](#documentação-openapi-e-mock-da-api) enquanto o back não os implementa.
+A lista completa de pendências está em [Pendências conhecidas](#pendências-conhecidas).
 
 ## Stack
 
 - PHP `^8.3`
 - Laravel `^13.17`
-- Laravel Sanctum `^4.0` (token Bearer)
-- MySQL (padrão do `.env.example`)
-- Pest `^5.3` para testes (SQLite em memória)
-- Laravel Pint (formatação) e Laravel Pail (logs em tempo real), como dependências de desenvolvimento
+- Laravel Sanctum `^4.0` (autenticação por token Bearer)
+- MySQL (banco de desenvolvimento e produção)
+- Pest (testes), com SQLite em memória
+- Laravel Pint (formatação), Laravel Pail (logs em tempo real) e Laravel Pao, como dependências de desenvolvimento
 - OpenAPI 3.0.3 em `docs/openapi.yaml`
 
 ## Requisitos
 
-- PHP 8.3 ou superior, com as extensões usuais do Laravel (`mbstring`, `openssl`, `tokenizer`, `xml`, `fileinfo`, `pdo_mysql`). Para rodar os testes, também `pdo_sqlite`.
-- [Composer](https://getcomposer.org/)
-- MySQL rodando localmente
-- Node.js (opcional): só é necessário para rodar o mock da API com `npx`
+- PHP 8.3 ou superior, com as extensões `mbstring`, `openssl`, `tokenizer`, `xml`, `fileinfo` e `pdo_mysql`. Para rodar os testes, também `pdo_sqlite`.
+- Composer
+- MySQL 8 (ou compatível) rodando localmente
+- Node.js, só se você quiser o mock da API com o Prism
 
-## Instalação passo a passo
+No Windows, o Laragon já traz PHP e MySQL. No Linux e no macOS, instale os pacotes equivalentes.
+
+## Instalação
 
 ```bash
 # 1. Entre na pasta do projeto
-cd car-wash-back
+cd carwash-backend
 
-# 2. Instale as dependências PHP
+# 2. Instale as dependências
 composer install
 
-# 3. Copie o arquivo de ambiente (veja a próxima seção)
-cp .env.example .env
+# 3. Crie o arquivo de ambiente
+cp .env.example .env            # Windows (cmd): copy .env.example .env
 
 # 4. Gere a chave da aplicação (preenche APP_KEY no .env)
 php artisan key:generate
 
 # 5. Crie o banco no MySQL (o Laravel não cria o banco sozinho)
-#    mysql -u root -p -e "CREATE DATABASE db_car_wash CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -u root -p -e "CREATE DATABASE db_car_wash CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
 # 6. Edite o .env: DB_USERNAME, DB_PASSWORD, ADMIN_EMAIL e ADMIN_PASSWORD
 
 # 7. Crie as tabelas
 php artisan migrate
 
-# 8. Popule os serviços e crie o usuário admin
+# 8. Cadastre os serviços e o usuário admin
 php artisan db:seed
 
 # 9. Suba o servidor
@@ -89,271 +103,373 @@ php artisan serve
 
 A API fica em `http://localhost:8000`.
 
-**Atalho:** `composer setup` executa `composer install`, copia o `.env` (se ainda não existir), gera a `APP_KEY` e roda `migrate --force`. Como ele roda as migrations logo em seguida, só funciona de primeira se o banco já existir e se as credenciais padrão do `.env.example` (usuário `root`, sem senha) estiverem corretas. Ele **não** roda o seeder, então rode `php artisan db:seed` depois.
+> **Atenção:** se você já tinha o banco de uma versão anterior do projeto, rode `php artisan migrate:fresh --seed` no lugar do passo 7 e do passo 8. Isso apaga todas as tabelas e os dados. Use só em desenvolvimento.
 
-## Como copiar o `.env`
+O script `composer setup` faz `composer install`, copia o `.env`, gera a `APP_KEY` e roda `migrate --force`. Ele **não** roda o seeder, então rode `php artisan db:seed` depois. Ele só funciona de primeira se o banco já existir e se as credenciais do `.env.example` (usuário `root`, sem senha) estiverem corretas para a sua máquina.
 
-O `.env` guarda as configurações locais e segredos, por isso **não é versionado** (está no `.gitignore`). O repositório traz o modelo `.env.example`; basta copiá-lo:
+## Configuração (`.env`)
 
-```bash
-# Linux / macOS / Git Bash
-cp .env.example .env
+O `.env` guarda configurações locais e segredos, por isso **não é versionado**. O repositório traz o modelo `.env.example`.
 
-# Windows (cmd)
-copy .env.example .env
+Depois de alterar o `.env`, reinicie o `php artisan serve` e rode `php artisan config:clear`, se a configuração estiver em cache.
 
-# Windows (PowerShell)
-Copy-Item .env.example .env
-```
+### Aplicação e idioma
 
-Depois, gere a chave da aplicação:
-
-```bash
-php artisan key:generate
-```
-
-Se você alterar o `.env` com o servidor rodando, reinicie o `php artisan serve`. Se a configuração estiver em cache, rode `php artisan config:clear`.
-
-## Variáveis do `.env`
-
-### Aplicação
-
-| Variável | Valor no exemplo | Significado |
+| Variável | Exemplo | Significado |
 | --- | --- | --- |
-| `APP_NAME` | `"Car Wash"` | Nome da aplicação. Também é usado como nome do remetente dos e-mails (`MAIL_FROM_NAME`). |
-| `APP_ENV` | `local` | Ambiente de execução: `local`, `testing` ou `production`. |
-| `APP_KEY` | *(vazio)* | Chave usada para criptografia e assinatura. Preencha com `php artisan key:generate`. Nunca compartilhe nem versione. |
-| `APP_DEBUG` | `true` | Mostra detalhes de erro nas respostas. Use `false` em produção. |
-| `APP_URL` | `http://localhost:8000` | URL base da API. É usada para montar URLs absolutas (como as URLs assinadas de anexos). Se mudar a porta do servidor, atualize aqui. |
-
-### Idioma
-
-| Variável | Valor no exemplo | Significado |
-| --- | --- | --- |
-| `APP_LOCALE` | `pt_BR` | Idioma das mensagens de validação e de erro (arquivos em `lang/pt_BR`). |
+| `APP_NAME` | `"Car Wash"` | Nome da aplicação. Também é o nome do remetente dos e-mails. |
+| `APP_ENV` | `local` | `local`, `testing` ou `production`. Em `local` e `testing`, sem Google configurado, o sistema não chama o Google. |
+| `APP_KEY` | *(vazio)* | Chave de criptografia. Gere com `php artisan key:generate`. Nunca versione. |
+| `APP_DEBUG` | `true` | Mostra detalhes de erro. Use `false` em produção. |
+| `APP_URL` | `http://localhost:8000` | URL base da API. Atualize se mudar a porta do servidor. |
+| `APP_LOCALE` | `pt_BR` | Idioma das mensagens de validação (`lang/pt_BR`). |
 | `APP_FALLBACK_LOCALE` | `en` | Idioma usado quando falta uma tradução. |
-| `APP_FAKER_LOCALE` | `pt_BR` | Idioma dos dados falsos gerados pelas factories. |
+| `APP_FAKER_LOCALE` | `pt_BR` | Idioma dos dados falsos das factories. |
 
-### Segurança
-
-| Variável | Valor no exemplo | Significado |
-| --- | --- | --- |
-| `BCRYPT_ROUNDS` | `12` | Custo do hash de senhas. Quanto maior, mais lento e mais seguro. (Nos testes é `4`, definido no `phpunit.xml`.) |
-
-### Logs
-
-| Variável | Valor no exemplo | Significado |
-| --- | --- | --- |
-| `LOG_CHANNEL` | `stack` | Canal de log principal. |
-| `LOG_STACK` | `single` | Canais dentro do `stack`. `single` grava tudo em `storage/logs/laravel.log`. |
-| `LOG_LEVEL` | `debug` | Nível mínimo registrado (`debug`, `info`, `warning`, `error`...). |
+O fuso horário do app é `America/Sao_Paulo` (fixo em `config/app.php`). Os agendamentos são guardados nesse fuso.
 
 ### Banco de dados
 
-| Variável | Valor no exemplo | Significado |
+| Variável | Exemplo | Significado |
 | --- | --- | --- |
 | `DB_CONNECTION` | `mysql` | Driver do banco. |
-| `DB_HOST` | `127.0.0.1` | Endereço do servidor MySQL. |
+| `DB_HOST` | `127.0.0.1` | Servidor MySQL. |
 | `DB_PORT` | `3306` | Porta do MySQL. |
-| `DB_DATABASE` | `db_car_wash` | Nome do banco. Ele precisa existir antes de rodar as migrations. |
-| `DB_USERNAME` | `root` | Usuário do MySQL. Troque pelo seu. |
-| `DB_PASSWORD` | *(vazio)* | Senha do MySQL. Troque pela sua. |
+| `DB_DATABASE` | `db_car_wash` | Nome do banco. Precisa existir antes das migrations. |
+| `DB_USERNAME` | `root` | Usuário do MySQL. |
+| `DB_PASSWORD` | *(vazio)* | Senha do MySQL. |
+
+### Segurança
+
+| Variável | Exemplo | Significado |
+| --- | --- | --- |
+| `BCRYPT_ROUNDS` | `12` | Custo do hash de senhas. Nos testes é `4`, definido no `phpunit.xml`. |
+
+O token da API expira em **480 minutos (8 horas)**. O valor fica em `config/sanctum.php`. `SANCTUM_TOKEN_PREFIX` (opcional) adiciona um prefixo aos tokens.
 
 ### Sessão, cache e fila
 
-| Variável | Valor no exemplo | Significado |
+| Variável | Exemplo | Significado |
 | --- | --- | --- |
-| `SESSION_DRIVER` | `file` | Onde as sessões ficam guardadas. A API usa token Bearer, então não depende de sessão. |
-| `CACHE_STORE` | `file` | Onde o cache fica guardado (`storage/framework/cache`). O limitador de tentativas do login e o hash falso usado na verificação de senha usam esse cache. |
-| `QUEUE_CONNECTION` | `sync` | Jobs rodam na hora, sem worker de fila. |
+| `SESSION_DRIVER` | `file` | A API usa token, então não depende de sessão. |
+| `CACHE_STORE` | `file` | Usado pelo limitador de tentativas e pelo hash de verificação de senha. |
+| `QUEUE_CONNECTION` | `sync` | Jobs e listeners rodam na hora, sem worker. |
+
+Se você trocar `QUEUE_CONNECTION` para `database`, o projeto ainda não tem a migration da tabela `jobs`. Crie-a antes com `php artisan queue:table`.
+
+### Logs
+
+| Variável | Exemplo | Significado |
+| --- | --- | --- |
+| `LOG_CHANNEL` | `stack` | Canal principal. |
+| `LOG_STACK` | `single` | Grava em `storage/logs/laravel.log`. |
+| `LOG_LEVEL` | `debug` | Nível mínimo registrado. |
+
+### Agendamento
+
+Valores provisórios: o cliente final ainda vai definir os reais.
+
+| Variável | Exemplo | Significado |
+| --- | --- | --- |
+| `AGENDA_PASSO` | `30` | Intervalo, em minutos, entre um horário e o seguinte. |
+| `AGENDA_ANTEC_AGENDAR_H` | `2` | Antecedência mínima, em horas, para agendar. |
+| `AGENDA_ANTEC_CANCELAR_H` | `2` | Antecedência mínima, em horas, para o cliente cancelar. |
+| `AGENDA_LIMITE_DIAS` | `90` | Quantos dias à frente o cliente pode agendar. |
+
+### Google Agenda
+
+| Variável | Exemplo | Significado |
+| --- | --- | --- |
+| `GOOGLE_CALENDAR_ID` | *(vazio)* | ID da agenda do Google que recebe os agendamentos. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | *(vazio)* | Caminho do arquivo JSON da conta de serviço do Google. |
+
+Os detalhes de funcionamento estão em [Google Agenda](#google-agenda).
 
 ### CORS (integração com o front)
 
-| Variável | Valor no exemplo | Significado |
+| Variável | Exemplo | Significado |
 | --- | --- | --- |
-| `FRONTEND_URL` | `http://localhost:5173` | Origem do front liberada no CORS para as rotas `api/*`. Aceita várias origens separadas por vírgula, por exemplo `http://localhost:5173,https://meusite.com`. Deve ser a origem exata, sem barra no final. |
+| `FRONTEND_URL` | `http://localhost:5173` | Origem do front liberada para `api/*`. Aceita várias origens separadas por vírgula, sem barra no final. |
 
-### Usuário admin (usado pelo seeder)
+### Admin (usado pelo seeder)
 
-| Variável | Valor no exemplo | Significado |
-| --- | --- | --- |
-| `ADMIN_NAME` | `"Administrador"` | Nome do admin criado pelo `db:seed`. |
-| `ADMIN_EMAIL` | *(vazio)* | E-mail de login do admin. **Obrigatório** para o seeder criar o admin. |
-| `ADMIN_PASSWORD` | *(vazio)* | Senha do admin, com **no mínimo 12 caracteres**. **Obrigatória** para o seeder criar o admin. |
-
-Comportamento do seeder com essas variáveis:
-
-- Se `ADMIN_EMAIL` ou `ADMIN_PASSWORD` estiver vazio, mostra um aviso e **não cria** o admin.
-- Se a senha tiver menos de 12 caracteres, mostra um erro e **não cria** o admin.
-- Se já existir um usuário com esse e-mail, ele **não é alterado** (a senha não é atualizada).
+| Variável | Significado |
+| --- | --- |
+| `ADMIN_NAME` | Nome do admin criado pelo `db:seed`. |
+| `ADMIN_EMAIL` | E-mail de login do admin. Obrigatório para o seeder criar o admin. |
+| `ADMIN_PASSWORD` | Senha do admin, com **no mínimo 12 caracteres**. Obrigatória para o seeder criar o admin. |
 
 ### E-mail
 
-| Variável | Valor no exemplo | Significado |
+| Variável | Exemplo | Significado |
 | --- | --- | --- |
-| `MAIL_MAILER` | `log` | Com `log`, nenhum e-mail é enviado de verdade: o conteúdo é gravado no log. |
-| `MAIL_FROM_ADDRESS` | `"contato@exemplo.com"` | Endereço do remetente. |
-| `MAIL_FROM_NAME` | `"${APP_NAME}"` | Nome do remetente (reaproveita o `APP_NAME`). |
+| `MAIL_MAILER` | `log` | Com `log`, nenhum e-mail é enviado: o conteúdo vai para o log. |
+| `MAIL_FROM_ADDRESS` | `"contato@exemplo.com"` | Remetente. |
+| `MAIL_FROM_NAME` | `"${APP_NAME}"` | Nome do remetente. |
 
-### Outras variáveis (opcionais)
+## Banco de dados
 
-Não estão no `.env.example`, mas as configs do projeto as aceitam:
+O banco é o `DB_DATABASE`. As migrations ficam em `database/migrations` e criam estas tabelas:
 
-| Variável | Padrão | Significado |
+| Domínio | Tabelas | Uso |
 | --- | --- | --- |
-| `FILESYSTEM_DISK` | `local` | Disco padrão de arquivos. Os anexos dos agendamentos são lidos e apagados no disco `local` (`storage/app/private`). |
-| `SANCTUM_TOKEN_PREFIX` | *(vazio)* | Prefixo adicionado aos tokens gerados. |
+| Contas | `usuario` | Equipe: administrador (`perfil = admin`) e funcionário (`perfil = funcionario`). |
+| Contas | `cliente` | Clientes, com `tipo` (padrão `residencial`) e `aceite_termos_em`. |
+| Contas | `endereco` | Endereços do cliente. Ligados ao cliente. |
+| Catálogo | `servico` | Serviços, com `categoria`, `duracao_minutos`, `preco_base` e `ativo`. |
+| Agenda | `disponibilidade` | Janelas de atendimento: data, horário inicial e final, capacidade e quem cadastrou. |
+| Agenda | `agendamento` | Pedidos: cliente, endereço, período (`data_hora` a `data_hora_fim`), `status`, `valor_total`, `motivo` e `google_event_id`. |
+| Agenda | `agendamento_servico` | Serviços de cada agendamento, com `quantidade` e `preco_unitario`. |
+| Anexos | `anexo_agendamento` | Metadados de arquivos de agendamento. Ainda sem rota de upload. |
+| Tokens | `personal_access_tokens` | Tokens do Sanctum. |
+| Reservadas | `pacote`, `pacote_servico`, `plano_manutencao`, `foto` | Criadas, mas ainda sem model nem rota. |
 
-> A validade do token é de **480 minutos (8 horas)** e está fixa em `config/sanctum.php`, não no `.env`.
+Regras de integridade relevantes:
 
-## Banco de dados e migrations
-
-Antes de tudo, crie o banco informado em `DB_DATABASE`:
-
-```sql
-CREATE DATABASE db_car_wash CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-```
+- Não é possível apagar um serviço que já tem agendamentos.
+- Apagar um agendamento apaga também os registros de anexos e os arquivos correspondentes no disco `local`.
+- O `status` do agendamento só aceita `pendente`, `confirmado`, `concluido` ou `cancelado`. Isso é garantido também por uma constraint no banco.
 
 Comandos úteis:
 
 ```bash
-# Cria as tabelas que ainda não foram criadas
-php artisan migrate
-
-# Mostra quais migrations já rodaram
-php artisan migrate:status
-
-# Desfaz o último lote de migrations
-php artisan migrate:rollback
-
-# APAGA todas as tabelas e recria tudo (só em desenvolvimento!)
-php artisan migrate:fresh
-
-# Recria tudo e já roda os seeders
-php artisan migrate:fresh --seed
+php artisan migrate                  # cria as tabelas que faltam
+php artisan migrate:status           # mostra o que já rodou
+php artisan migrate:rollback         # desfaz o último lote
+php artisan migrate:fresh --seed     # APAGA tudo e recria (só em desenvolvimento)
+php artisan migrate --force          # em produção
 ```
 
-Em produção, use `php artisan migrate --force`.
-
-### Tabelas criadas
-
-| Migration | Tabelas |
-| --- | --- |
-| `0001_01_01_000000_create_users_table` | `users`, `password_reset_tokens`, `sessions` |
-| `0001_01_01_000001_create_cache_table` | `cache`, `cache_locks` |
-| `0001_01_01_000002_create_jobs_table` | `jobs`, `job_batches`, `failed_jobs` |
-| `2026_10_11_192713_create_personal_access_tokens_table` | `personal_access_tokens` (tokens do Sanctum) |
-| `2026_10_14_000001_create_servicos_table` | `servicos` (`nome` único, `descricao`, `ativo`) |
-| `2026_10_14_000002_create_agendamentos_table` | `agendamentos` (`nome`, `telefone`, `endereco`, `servico_id`, `data`, `horario`, `status`, `observacoes`) |
-| `2026_10_14_000003_create_agendamento_anexos_table` | `agendamento_anexos` (`agendamento_id`, `caminho`, `nome_original`, `mime_type`, `tamanho`) |
-
-Regras de relacionamento:
-
-- Um serviço não pode ser apagado se tiver agendamentos (`restrictOnDelete`).
-- Apagar um agendamento apaga os registros de anexos (`cascadeOnDelete`) e também os arquivos do disco `local`.
-- O `status` do agendamento nasce como `pendente` e aceita `pendente`, `confirmado`, `concluido` ou `cancelado` (enum `StatusAgendamento`).
-
-## Seeders (serviços e admin)
+## Seeders e usuários
 
 ```bash
-php artisan db:seed
+php artisan db:seed                              # serviços + admin
+php artisan db:seed --class=ServicoSeeder        # só os serviços
+php artisan db:seed --class=DevFuncionarioSeeder # funcionário de teste (não roda em produção)
 ```
 
-O `DatabaseSeeder` faz duas coisas:
+- **`ServicoSeeder`** cadastra os 8 serviços iniciais de lavagem (muros e paredes externas, portões e grades, fachadas e revestimentos, calçadas e pisos externos, pedras e revestimentos, garagens e áreas de circulação, áreas de lazer e áreas PET). Ele não duplica se rodar de novo.
+- **`DatabaseSeeder`** cria o administrador a partir de `ADMIN_NAME`, `ADMIN_EMAIL` e `ADMIN_PASSWORD`:
+  - Se e-mail ou senha estiverem vazios, avisa e **não cria** o admin.
+  - Se a senha tiver menos de 12 caracteres, mostra erro e **não cria** o admin.
+  - Se já existir um usuário com esse e-mail, ele **não é alterado**. A senha não é atualizada.
+- **`DevFuncionarioSeeder`** cria `funcionario@teste.local` com perfil `funcionario`, para testar o acesso da equipe. Não roda em produção.
 
-1. **`ServicoSeeder`**: cadastra 8 serviços de lavagem (muros e paredes externas, portões e grades, fachadas e revestimentos, calçadas e pisos externos, pedras e revestimentos, garagens e áreas de circulação, áreas de lazer, áreas PET e espaços externos). Usa `firstOrCreate`, então pode ser executado várias vezes sem duplicar.
-2. **Admin**: cria o usuário administrador a partir das variáveis `ADMIN_*` do `.env` (regras na seção [Usuário admin](#usuário-admin-usado-pelo-seeder)).
-
-Para rodar só os serviços:
-
-```bash
-php artisan db:seed --class=ServicoSeeder
-```
-
-## Como rodar o servidor
+## Rodando o servidor
 
 ```bash
-php artisan serve
-```
-
-Por padrão sobe em `http://127.0.0.1:8000`. Alternativas:
-
-```bash
-# Outra porta (lembre de atualizar APP_URL no .env)
-php artisan serve --port=8001
-
-# Via Composer
-composer dev
+php artisan serve                  # http://127.0.0.1:8000
+php artisan serve --port=8001      # outra porta (atualize APP_URL)
+composer dev                       # mesmo que artisan serve, sem limite de tempo
+php artisan pail                   # logs em tempo real
 ```
 
 Para conferir se está no ar:
 
-- `GET http://localhost:8000/up` — health check do Laravel.
-- `GET http://localhost:8000/api/servicos` — lista os serviços.
+- `GET /up`: health check do Laravel.
+- `GET /api/servicos`: lista os serviços ativos.
 
-A raiz `/` não tem página: ela responde `404` de propósito, já que o projeto é só API.
+A raiz `/` responde 404 de propósito: o projeto é só API.
 
-Para acompanhar os logs em tempo real durante o desenvolvimento:
+## Autenticação e perfis
 
-```bash
-php artisan pail
-```
+A autenticação usa token Bearer do Sanctum. Envie `Authorization: Bearer <token>` nas rotas protegidas.
 
-## Endpoints implementados
+Há três perfis, e cada token só funciona nas rotas do seu perfil:
 
-Todos os caminhos têm o prefixo `/api`.
+| Perfil | Como entra | Acesso |
+| --- | --- | --- |
+| Cliente | `POST /api/auth/register` ou `POST /api/auth/login` | Rotas `/api/auth/*` (logout, me), endereços, disponibilidade e agendamentos do próprio cliente |
+| Funcionário | `POST /api/admin/login` (conta com `perfil = funcionario`) | Painel de pedidos: `/api/admin/agendamentos*` |
+| Administrador | `POST /api/admin/login` (conta com `perfil = admin`) | Tudo do funcionário, mais as janelas de atendimento: `/api/admin/disponibilidades*` |
 
-| Método | Rota | Auth | Descrição |
-| --- | --- | --- | --- |
-| `GET` | `/api/servicos` | Não | Lista os serviços ativos (`id`, `nome`, `descricao`), ordenados por `id`. |
-| `POST` | `/api/login` | Não | Autentica o admin e devolve um token. Limite por IP: 5 por minuto e 30 por hora. |
-| `POST` | `/api/logout` | Bearer | Revoga o token atual. |
+Regras:
+
+- O token vale por 8 horas.
+- Cada novo login **revoga os tokens anteriores**: só o último login continua válido.
+- Token de tipo errado responde `403 {"message": "Acesso negado."}`. Sem token ou com token inválido, responde `401`.
+- E-mail inexistente e senha errada respondem igual, para não revelar quais e-mails existem.
+- Limite de tentativas por IP: login (cliente e equipe, compartilhado) de 5 por minuto e 30 por hora; cadastro de 10 por hora.
+- Trocar o e-mail ou a senha do cliente encerra as outras sessões dele. A sessão que fez a alteração continua válida. A troca não exige a senha atual.
+
+## Endpoints
+
+Todos os caminhos têm o prefixo `/api`. A documentação completa, com corpos de requisição, exemplos e erros, está em [`docs/openapi.yaml`](docs/openapi.yaml).
+
+### Público
+
+| Método | Rota | Descrição |
+| --- | --- | --- |
+| `GET` | `/servicos` | Serviços ativos, ordenados por `id`. |
+| `POST` | `/auth/register` | Cadastra um cliente e já devolve o token. |
+| `POST` | `/auth/login` | Login do cliente. |
+| `POST` | `/admin/login` | Login da equipe. |
+
+### Cliente (token de cliente)
+
+| Método | Rota | Descrição |
+| --- | --- | --- |
+| `POST` | `/auth/logout` | Revoga o token atual. |
+| `GET` | `/auth/me` | Dados do cliente logado. |
+| `PUT` | `/auth/me` | Edita nome, e-mail, telefone e senha. Envie só os campos que mudam. |
+| `GET` | `/enderecos` | Lista os endereços do cliente. |
+| `POST` | `/enderecos` | Cadastra um endereço. |
+| `GET` | `/enderecos/{id}` | Mostra um endereço. |
+| `PUT` | `/enderecos/{id}` | Substitui os dados de um endereço. |
+| `DELETE` | `/enderecos/{id}` | Remove um endereço (não remove se já foi usado em agendamento). |
+| `GET` | `/disponibilidade/dias?mes=AAAA-MM&servico_id=` | Dias do mês com pelo menos um horário livre. |
+| `GET` | `/disponibilidade?data=AAAA-MM-DD&servico_id=` | Horários livres de um dia para o serviço. |
+| `GET` | `/agendamentos` | Agendamentos do cliente logado, mais recentes primeiro. |
+| `POST` | `/agendamentos` | Cria um agendamento pendente. |
+| `GET` | `/agendamentos/{id}` | Mostra um agendamento do cliente. |
+| `PATCH` | `/agendamentos/{id}/cancelar` | Cancela, respeitando a antecedência mínima. |
+
+### Equipe (token de administrador ou funcionário)
+
+| Método | Rota | Descrição |
+| --- | --- | --- |
+| `POST` | `/admin/logout` | Revoga o token atual. |
+| `GET` | `/admin/me` | Dados do usuário logado. |
+| `GET` | `/admin/agendamentos/resumo` | Quantidade de pedidos pendentes. |
+| `GET` | `/admin/agendamentos` | Lista paginada, com filtros (ver abaixo). |
+| `GET` | `/admin/agendamentos/{id}` | Detalhe do pedido, com cliente, endereço, serviços e atendente. |
+| `PATCH` | `/admin/agendamentos/{id}/confirmar` | Confirma um pedido pendente. |
+| `PATCH` | `/admin/agendamentos/{id}/recusar` | Recusa um pedido pendente. Exige `motivo`. |
+| `PATCH` | `/admin/agendamentos/{id}/concluir` | Marca um pedido confirmado como concluído. |
+
+Filtros da listagem `GET /admin/agendamentos`: `status`, `data_inicio`, `data_fim`, `cliente_id`, `servico_id`, `usuario_id` (atendente) e `per_page` (de 1 a 100, padrão 15).
+
+### Administrador (token de administrador)
+
+| Método | Rota | Descrição |
+| --- | --- | --- |
+| `GET` | `/admin/disponibilidades` | Lista as janelas, com filtros `data_inicio` e `data_fim`. |
+| `POST` | `/admin/disponibilidades` | Cria uma janela de atendimento. |
+| `GET` | `/admin/disponibilidades/{id}` | Mostra uma janela. |
+| `PUT` / `PATCH` | `/admin/disponibilidades/{id}` | Altera horários, capacidade ou observação. |
+| `DELETE` | `/admin/disponibilidades/{id}` | Remove uma janela. |
+| `POST` | `/admin/disponibilidades/lote` | Cria janelas em lote, nos dias da semana escolhidos. |
 
 ### Exemplos
 
 ```bash
-# Listar serviços
+# Listar serviços (público)
 curl http://localhost:8000/api/servicos
 
-# Login (devolve {"token": "1|..."})
-curl -X POST http://localhost:8000/api/login \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json" \
-  -d '{"email":"admin@exemplo.com","password":"sua-senha-com-12-ou-mais"}'
+# Cadastrar cliente
+curl -X POST http://localhost:8000/api/auth/register \
+  -H "Accept: application/json" -H "Content-Type: application/json" \
+  -d '{"nome":"Maria Souza","telefone":"(41) 99999-9999","email":"maria@exemplo.com","password":"senha-segura-123","aceite_termos":true}'
 
-# Logout
-curl -X POST http://localhost:8000/api/logout \
+# Login da equipe
+curl -X POST http://localhost:8000/api/admin/login \
+  -H "Accept: application/json" -H "Content-Type: application/json" \
+  -d '{"email":"admin@seudominio.com","password":"sua-senha-com-12-ou-mais"}'
+
+# Horários livres de um dia (cliente)
+curl "http://localhost:8000/api/disponibilidade?data=2026-11-14&servico_id=1" \
+  -H "Accept: application/json" -H "Authorization: Bearer SEU_TOKEN"
+
+# Criar agendamento (cliente)
+curl -X POST http://localhost:8000/api/agendamentos \
+  -H "Accept: application/json" -H "Content-Type: application/json" \
   -H "Authorization: Bearer SEU_TOKEN" \
-  -H "Accept: application/json"
+  -d '{"endereco_id":1,"data_hora":"2026-11-14T08:00:00-03:00","servicos":[{"servico_id":1,"quantidade":1}],"observacoes":"Muro com muito limo."}'
 ```
 
-### Regras de autenticação
+## Formato das respostas e erros
 
-- O token vale por 8 horas.
-- Cada novo login **revoga os tokens anteriores**: só o último login continua válido.
-- E-mail inexistente e senha errada devolvem exatamente a mesma resposta (`422`, `"E-mail ou senha inválidos"`), para não revelar quais e-mails existem.
+O formato depende do módulo:
 
-### Formato dos erros
+- **Cadastro, login, dados do cliente, endereços e serviços** devolvem o objeto (ou a lista) diretamente.
+- **Disponibilidade, agendamentos, painel e janelas** devolvem `{"data": ...}`.
+- **A listagem paginada do painel** (`GET /api/admin/agendamentos`) devolve o paginador do Laravel, com `data` (a página), `current_page`, `last_page`, `total` e os links.
 
-Todos os erros são JSON, mesmo sem o header `Accept: application/json`.
+Todos os erros são JSON, mesmo sem `Accept: application/json`:
 
 | Status | Quando | Corpo |
 | --- | --- | --- |
 | `401` | Token ausente, inválido ou revogado | `{"message": "Não autenticado."}` |
-| `403` | URL assinada inválida ou expirada | `{"message": "Link inválido ou expirado."}` |
-| `404` | Rota ou recurso inexistente | `{"message": "Recurso não encontrado."}` |
+| `403` | Token de outro perfil, ou link assinado inválido | `{"message": "Acesso negado."}` |
+| `404` | Rota inexistente, ou recurso que não pertence ao usuário | `{"message": "Recurso não encontrado."}` |
 | `405` | Método HTTP não permitido | `{"message": "Método não permitido."}` |
+| `409` | Ação não permitida no estado atual do pedido ou da janela | `{"message": "..."}` |
 | `413` | Upload acima do limite do servidor | `{"message": "Os arquivos enviados excedem o tamanho máximo permitido."}` |
 | `422` | Validação falhou | `{"message": "...", "errors": {"campo": ["..."]}}` |
-| `429` | Muitas tentativas | `{"message": "Muitas tentativas. Tente novamente em instantes.", "retry_after": 42}` (e header `Retry-After`) |
+| `429` | Muitas tentativas | `{"message": "Muitas tentativas. Tente novamente em instantes.", "retry_after": 42}`, com o header `Retry-After` |
+| `503` | Agenda externa (Google) não pôde ser consultada ao calcular disponibilidade | `{"message": "Não foi possível consultar a agenda externa."}` |
 
-## Documentação OpenAPI e mock da API
+O `message` de um `422` é a primeira mensagem de validação. Os detalhes de cada campo estão em `errors`.
 
-O contrato da API está em [`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3.0.3). Ele descreve os endpoints implementados **e também os que ainda serão implementados** (criação de agendamento, download de anexo e rotas admin de agendamentos). Os caminhos já incluem `/api`, então o front só troca o host entre o mock e o back real.
+## Regras de negócio
 
-### Rodando o mock com Prism
+### Agendamento
 
-Não precisa instalar nada além do Node.js. Na raiz do projeto:
+- O pedido nasce `pendente`. No front, esse status deve aparecer como "Avaliando".
+- O horário precisa cair em uma janela de atendimento, no intervalo de `AGENDA_PASSO` minutos, e caber inteiro na janela.
+- Um horário só fica livre se a capacidade da janela não estiver esgotada e se não houver conflito com agendamentos `pendente` ou `confirmado`, nem com a agenda externa do Google.
+- Antecedência mínima de `AGENDA_ANTEC_AGENDAR_H` horas para agendar. Não é possível agendar mais de `AGENDA_LIMITE_DIAS` dias à frente.
+- Preço e duração vêm **sempre do banco**. O `valor_total` é a soma de `preco_base × quantidade`. Valores enviados pelo front são ignorados.
+- Um mesmo serviço não pode aparecer duas vezes no pedido. A quantidade vai de 1 a 99.
+- `observacoes` aceita até 500 caracteres.
+- O endereço precisa pertencer ao cliente logado.
+
+### Status do agendamento
+
+| De | Para | Quem | Como |
+| --- | --- | --- | --- |
+| `pendente` | `confirmado` | Equipe | `PATCH .../confirmar` |
+| `pendente` | `cancelado` | Equipe | `PATCH .../recusar`, com `motivo` obrigatório |
+| `pendente` ou `confirmado` | `cancelado` | Cliente | `PATCH .../cancelar`, com antecedência de `AGENDA_ANTEC_CANCELAR_H` horas |
+| `confirmado` | `concluido` | Equipe | `PATCH .../concluir` |
+
+Ações fora dessas transições respondem `409`. Por exemplo, recusar um pedido já confirmado. Um pedido cancelado ou concluído não pode ser cancelado de novo.
+
+Não há expiração automática de pedidos pendentes.
+
+### Janelas de atendimento
+
+- A data precisa ser hoje ou futura.
+- `hora_fim` precisa ser depois de `hora_inicio`.
+- A capacidade vai de 1 a 20 (padrão 1).
+- Janelas do mesmo dia não podem se sobrepor.
+- Alterar horário ou capacidade de uma janela que deixaria agendamentos de fora responde `409`, com os ids dos agendamentos afetados. Nada é alterado.
+- Apagar uma janela que tem agendamentos responde `409`, com os ids afetados.
+- A data de uma janela não pode ser alterada. Para outro dia, crie outra janela.
+- No cadastro em lote, `dias_semana` usa `0` para domingo até `6` para sábado. Janelas que conflitam com as existentes são ignoradas e listadas em `ignoradas`.
+
+## Google Agenda
+
+Quando há Google configurado, a agenda funciona assim:
+
+- Ao **confirmar** um pedido, cria-se um evento na agenda configurada.
+- Ao **alterar** horário, data ou observação de um pedido já confirmado, o evento é atualizado.
+- Ao **cancelar ou recusar**, o evento é removido.
+- A disponibilidade considera os compromissos da agenda externa, além dos agendamentos do sistema.
+
+Para ativar, preencha `GOOGLE_CALENDAR_ID` e `GOOGLE_APPLICATION_CREDENTIALS` no `.env`. O arquivo de credenciais é de uma conta de serviço do Google, com acesso de edição à agenda.
+
+Comportamento por ambiente:
+
+- **`local` ou `testing` sem `GOOGLE_CALENDAR_ID`**: a consulta de disponibilidade usa uma agenda vazia e **não chama o Google**.
+- **`production` sem Google configurado**: a consulta de disponibilidade responde `503`. É o comportamento esperado, para não aceitar agendamentos sem conferir a agenda externa.
+
+Os eventos (criar, atualizar e remover) são tratados por listeners que implementam `ShouldQueue`, com até 5 tentativas. Como isso se comporta depende da fila:
+
+- Com `QUEUE_CONNECTION=sync` (o padrão do `.env.example`), o listener roda na hora, dentro da requisição. Uma falha do Google aparece como erro na confirmação do pedido.
+- Com um worker de fila de verdade, a falha é reprocessada e não derruba a confirmação.
+
+## Documentação da API e mock
+
+O contrato da API está em [`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3.0.3). Ele descreve as 24 rotas implementadas, com regras de validação, erros e respostas. Os caminhos já incluem `/api`, então o front só troca o host entre o mock e o back.
+
+O arquivo `docs/openapi_agendamento.yaml` é uma versão anterior e está obsoleto. Use só o `openapi.yaml`.
+
+Para ver a documentação em uma interface navegável, cole o conteúdo de `docs/openapi.yaml` no [Swagger Editor](https://editor.swagger.io/).
+
+### Mock com Prism
+
+Na raiz do projeto:
 
 ```bash
 npx @stoplight/prism-cli mock docs/openapi.yaml
@@ -365,79 +481,60 @@ O mock sobe em `http://localhost:4010` e responde com os exemplos do contrato:
 curl http://localhost:4010/api/servicos
 ```
 
-Para o front, basta apontar a URL base da API para `http://localhost:4010` durante o desenvolvimento e trocar para `http://localhost:8000` (ou a URL de produção) quando for usar o back real.
-
-### Forçando cenários
-
-O Prism aceita o header `Prefer` para escolher qual resposta devolver:
+Para forçar um cenário, use o header `Prefer`:
 
 ```bash
-# Forçar um status específico (ex.: erro de validação)
-curl -X POST http://localhost:4010/api/login \
-  -H "Content-Type: application/json" \
-  -H "Prefer: code=422" \
+# Forçar um status (ex.: erro de validação)
+curl -X POST http://localhost:4010/api/auth/login \
+  -H "Content-Type: application/json" -H "Prefer: code=422" \
   -d '{"email":"a@b.com","password":"x"}'
 
-# Forçar um exemplo nomeado (nomes definidos no YAML, ex.: "vazia", "pagina", "horarioPassado")
+# Forçar um exemplo nomeado definido no YAML
 curl http://localhost:4010/api/servicos -H "Prefer: example=vazia"
 ```
 
-Observações:
+As rotas protegidas exigem `Authorization: Bearer <qualquer-valor>` no mock. Sem o header, o Prism responde `401`.
 
-- As rotas protegidas (`/api/logout` e `/api/admin/...`) exigem o header `Authorization: Bearer <qualquer-valor>` no mock; sem ele o Prism responde `401`.
-- O criar agendamento é `multipart/form-data`, com as fotos em `anexos[]`.
+O mock valida o formato, mas não aplica as regras de negócio. Quem decide a regra real é o back e os testes.
 
-### Visualizando a documentação
+### Coleção do Postman (QA)
 
-Para ler o contrato em uma interface navegável, você pode abrir o conteúdo de `docs/openapi.yaml` no [Swagger Editor](https://editor.swagger.io/) ou usar, por exemplo:
+Para testar o fluxo completo manualmente, importe `docs/postman/CarWash_QA.postman_collection.json` no Postman, usando o Desktop Agent. Antes:
 
-```bash
-npx @redocly/cli preview-docs docs/openapi.yaml
-```
+1. Rode `php artisan db:seed --class=DevFuncionarioSeeder`.
+2. Preencha as variáveis `adminEmail` e `adminSenha` da coleção com `ADMIN_EMAIL` e `ADMIN_PASSWORD` do `.env`.
 
-### O que já existe no back e o que é só contrato
+Depois, rode as requisições na ordem.
 
-| Endpoint | No back | No OpenAPI |
-| --- | --- | --- |
-| `GET /api/servicos` | Sim | Sim |
-| `POST /api/login` | Sim | Sim |
-| `POST /api/logout` | Sim | Sim |
-| `POST /api/agendamentos` | Não | Sim |
-| `GET /api/anexos/{anexo}` | Não | Sim |
-| `GET /api/admin/agendamentos` | Não | Sim |
-| `GET /api/admin/agendamentos/{agendamento}` | Não | Sim |
-| `PATCH /api/admin/agendamentos/{agendamento}` | Não | Sim |
+## Testes e qualidade de código
 
-Quando o back implementar esses endpoints, o YAML é a referência de regras: campos obrigatórios, limites (até 5 fotos JPG/PNG/WebP de até 5 MB, data de hoje até 90 dias à frente), paginação de 20 itens e formato das respostas.
-
-## Testes
-
-Os testes usam **Pest** e rodam com **SQLite em memória**, então não tocam no seu banco MySQL (é preciso ter a extensão `pdo_sqlite` habilitada no PHP).
+Os testes usam **Pest** e rodam com **SQLite em memória**. Eles não tocam no seu MySQL, mas exigem a extensão `pdo_sqlite`.
 
 ```bash
-composer test
+composer test                  # limpa o cache de configuração e roda os testes
+php artisan test               # só os testes
 
-# ou, direto
-php artisan test
+php artisan test tests/Feature/EdicaoPerfilClienteTest.php
+php artisan test --filter="cancelar"
 ```
 
-Para rodar um arquivo ou filtrar por nome:
+Os testes ficam em `tests/Feature` e `tests/Unit`. Eles cobrem:
 
-```bash
-php artisan test tests/Feature/AuthAdminTest.php
-php artisan test --filter="logout"
-```
-
-Cobertura atual (`tests/Feature`):
-
-| Arquivo | O que testa |
+| Arquivo | O que verifica |
 | --- | --- |
-| `AuthAdminTest.php` | Login, token único por usuário, logout, login com o admin criado pelo seeder |
-| `ErrosECorsTest.php` | Formato de erros 401/404/422, rate limit do login (429) e CORS |
-| `ServicosTest.php` | Listagem pública só com serviços ativos e lista vazia |
-| `PaginaInicialTest.php` | A raiz `/` responde 404 |
+| `AuthClienteTest`, `AuthAdminTest` | Cadastro, login, logout, token único e login com o admin do seeder |
+| `EdicaoPerfilClienteTest` | Edição de dados do cliente e revogação de sessões |
+| `EnderecosTest` | CRUD de endereços e isolamento entre clientes |
+| `PerfisTest` | Um token não acessa as rotas do outro perfil |
+| `ServicosTest`, `PaginaInicialTest` | Lista pública de serviços e a raiz `/` |
+| `ErrosECorsTest` | Formato de erros, rate limit e CORS |
+| `JanelasTest`, `DisponibilidadeTest`, `CalculoHorariosTest` | Janelas, horários livres e cálculo de slots |
+| `AgendamentoTest`, `CancelamentoTest` | Criação, regras de antecedência e cancelamento |
+| `ConcorrenciaTest` | Dois clientes disputando o mesmo horário |
+| `FluxoIntegradoTest` | Cliente agenda, equipe confirma ou recusa |
+| `GoogleCalendarServiceTest` | Integração com o Google (usa chave temporária gerada no teste) |
 
-Para padronizar o código com o Pint:
+Formatação do código:
 
 ```bash
 ./vendor/bin/pint
@@ -448,21 +545,38 @@ Para padronizar o código com o Pint:
 ```
 .
 ├── app/
-│   ├── Enums/StatusAgendamento.php      # pendente | confirmado | concluido | cancelado
-│   ├── Http/Controllers/                # AuthController, ServicoController
-│   ├── Models/                          # User, Servico, Agendamento, AgendamentoAnexo
-│   └── Providers/AppServiceProvider.php # rate limiter "login"
-├── bootstrap/app.php                    # rotas, health check e respostas de erro em JSON
-├── config/                              # admin.php, cors.php, sanctum.php, etc.
+│   ├── Contracts/AgendaExterna.php         # interface da agenda externa (Google ou vazia)
+│   ├── Events/                             # AgendamentoConfirmado, Atualizado, Cancelado
+│   ├── Http/
+│   │   ├── Controllers/
+│   │   │   ├── ClienteAuthController.php   # cadastro, login e dados do cliente
+│   │   │   ├── AdminAuthController.php     # login da equipe
+│   │   │   ├── EnderecoController.php
+│   │   │   ├── ServicoController.php
+│   │   │   ├── Disponibilidade/            # horários livres, janelas e lote
+│   │   │   └── Agendamento/                # agendamento do cliente, cancelamento e painel
+│   │   ├── Middleware/ExigePerfil.php      # cliente, admin, equipe
+│   │   └── Requests/                       # validação de cada rota
+│   ├── Listeners/                          # criam, atualizam e removem eventos do Google
+│   ├── Models/                             # Cliente, User, Endereco, Servico, Agendamento, Disponibilidade...
+│   ├── Providers/AppServiceProvider.php    # rate limits, listeners e agenda externa
+│   └── Services/Agendamento/               # cálculo de horários, regras de agendamento, integração com o Google
+├── bootstrap/app.php                       # rotas, health check e erros em JSON
+├── config/                                 # admin, agendamento, cors, google_calendar, sanctum...
 ├── database/
-│   ├── factories/                       # UserFactory
+│   ├── factories/
 │   ├── migrations/
-│   └── seeders/                         # DatabaseSeeder, ServicoSeeder
-├── docs/openapi.yaml                    # contrato da API (usado também pelo mock)
-├── lang/pt_BR/                          # traduções de validação, auth, etc.
-├── routes/api.php                       # rotas da API
-├── storage/                             # logs, cache e arquivos privados (anexos)
-└── tests/                               # testes Pest
+│   └── seeders/                            # DatabaseSeeder, ServicoSeeder, DevFuncionarioSeeder
+├── docs/
+│   ├── openapi.yaml                        # contrato da API
+│   ├── postman/                            # coleção de QA
+│   └── modulos/                            # documentação de cada módulo (dev-b, dev-c)
+├── lang/pt_BR/                             # mensagens de validação em português
+├── routes/
+│   ├── api.php                             # contas, endereços e rotas da equipe
+│   └── agendamento.php                     # disponibilidade, agendamentos e painel
+├── storage/                                # logs, cache e arquivos privados
+└── tests/                                  # testes Pest
 ```
 
 ## Problemas comuns
@@ -471,15 +585,31 @@ Para padronizar o código com o Pint:
 | --- | --- | --- |
 | `No application encryption key has been specified` | `APP_KEY` vazio | `php artisan key:generate` |
 | `SQLSTATE[HY000] [1049] Unknown database` | O banco não existe | Crie o banco com o nome de `DB_DATABASE` |
-| `SQLSTATE[HY000] [1045] Access denied` | Usuário ou senha do MySQL incorretos | Ajuste `DB_USERNAME` e `DB_PASSWORD` no `.env` |
+| `SQLSTATE[HY000] [1045] Access denied` | Usuário ou senha do MySQL incorretos | Ajuste `DB_USERNAME` e `DB_PASSWORD` |
+| `Base table not found` | As migrations não rodaram | `php artisan migrate` (ou `migrate:fresh --seed`, se o banco for antigo) |
 | `ADMIN_EMAIL/ADMIN_PASSWORD não definidos` no seeder | Variáveis vazias | Preencha no `.env` e rode `php artisan db:seed` de novo |
-| `ADMIN_PASSWORD precisa ter ao menos 12 caracteres` | Senha curta | Use uma senha com 12+ caracteres |
-| Mudei a senha no `.env` mas o login antigo continua | O seeder não atualiza admin existente | Altere a senha pelo banco ou apague o usuário e rode o seeder de novo |
-| Erro de CORS no navegador | `FRONTEND_URL` diferente da origem do front | Coloque a origem exata (protocolo, host e porta) em `FRONTEND_URL` |
-| `429 Muitas tentativas` no login | Mais de 5 tentativas por minuto (ou 30 por hora) do mesmo IP | Aguarde o tempo do header `Retry-After` |
+| `ADMIN_PASSWORD precisa ter ao menos 12 caracteres` | Senha curta | Use 12 caracteres ou mais |
+| Mudei a senha do admin no `.env` e o login antigo continua | O seeder não atualiza um admin já existente | Altere a senha no banco, ou apague o usuário e rode o seeder de novo |
+| Erro de CORS no navegador | `FRONTEND_URL` diferente da origem do front | Coloque a origem exata (protocolo, host e porta) |
+| `429 Muitas tentativas` no login | Mais de 5 tentativas por minuto, ou 30 por hora, do mesmo IP | Aguarde o tempo de `Retry-After` |
+| `409` ao cancelar ou recusar | O pedido já está em outro status | Confira o status antes de agir (ver [Status do agendamento](#status-do-agendamento)) |
+| `422` com `agendamento` ou `data_hora` na antecedência | Pedido com menos de 2 horas de antecedência | Escolha outro horário |
 | Alterações no `.env` não surtem efeito | Configuração em cache | `php artisan config:clear` |
-| Testes falham com `could not find driver` | Falta `pdo_sqlite` no PHP | Habilite a extensão `pdo_sqlite` no `php.ini` |
+| `could not find driver` nos testes | Falta `pdo_sqlite` | Habilite a extensão no `php.ini` |
+| `503` ao consultar disponibilidade em produção | Agenda do Google não acessível | Confira `GOOGLE_CALENDAR_ID` e as credenciais |
+
+## Pendências conhecidas
+
+- **Fotos dos agendamentos:** upload, listagem e download por URL assinada. A tabela `anexo_agendamento` e o model `AgendamentoAnexo` existem, mas não há rota nem controller. O contrato em `docs/openapi.yaml` não inclui essas rotas.
+- **Redefinição de senha do cliente** pela equipe.
+- **Ajuste do valor ao confirmar** o pedido. Hoje o `valor_total` é só a soma da tabela de preços.
+- **Capacidade de janela:** impedir reduzir a capacidade abaixo do número de agendamentos já existentes. Hoje a alteração de horário é validada, mas a capacidade ainda não.
+- **`google_event_id` aparece nas respostas** de agendamento, inclusive as do cliente. É um identificador interno e deveria ficar oculto.
+- **Listeners do Google em local ou testes sem `GOOGLE_CALENDAR_ID`:** o provider só registra os listeners quando há Google configurado, mas confirmar um pedido nesse cenário ainda pode chamá-los e responder `500`. O `FluxoIntegradoTest` mostrou esse caso. A causa não foi confirmada; o provider deveria pular os listeners nesse ambiente.
+- **Concorrência real:** o `ConcorrenciaTest` envia os pedidos em sequência. Pedidos simultâneos precisam de teste manual ou de um teste com processos paralelos.
+- **Reconciliação com o Google:** comando para detectar e corrigir eventos divergentes. Opcional, ainda não existe.
+- **Tabelas reservadas** (`pacote`, `pacote_servico`, `plano_manutencao`, `foto`): sem model nem rota.
 
 ## Licença
 
-Distribuído sob a licença **Apache-2.0**. Veja o arquivo [LICENSE](LICENSE).
+Distribuído sob a licença **Apache-2.0**. Veja [LICENSE](LICENSE).

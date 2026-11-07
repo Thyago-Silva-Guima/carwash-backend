@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -22,6 +23,21 @@ class Disponibilidade extends Model
             'data' => 'date:Y-m-d',
             'capacidade' => 'integer',
         ];
+    }
+
+    protected function horaInicio(): Attribute
+    {
+        return Attribute::make(set: fn ($valor) => $this->comSegundos($valor));
+    }
+
+    protected function horaFim(): Attribute
+    {
+        return Attribute::make(set: fn ($valor) => $this->comSegundos($valor));
+    }
+
+    private function comSegundos(string $valor): string
+    {
+        return strlen($valor) === 5 ? $valor . ':00' : $valor;
     }
 
     public function usuario(): BelongsTo

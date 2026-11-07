@@ -10,6 +10,8 @@ class AgendamentoAnexo extends Model
 {
     protected $table = 'anexo_agendamento';
 
+    public const UPDATED_AT = null;
+
     protected $fillable = ['agendamento_id', 'url', 'nome_original', 'mime_type', 'tamanho'];
 
     protected $hidden = ['url'];

@@ -18,6 +18,8 @@
         </include>
     </source>
     <php>
+        <env name="GOOGLE_CALENDAR_ID" value=""/>
+        <env name="GOOGLE_APPLICATION_CREDENTIALS" value=""/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

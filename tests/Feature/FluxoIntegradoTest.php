@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Events\AgendamentoCancelado;
+use App\Events\AgendamentoConfirmado;
 use Illuminate\Support\Facades\Event;
 use Tests\FeatureBase;
 
@@ -23,6 +24,8 @@ class FluxoIntegradoTest extends FeatureBase
 
     public function test_cliente_agenda_equipe_confirma_e_o_atendente_fica_registrado(): void
     {
+        Event::fake([AgendamentoConfirmado::class]);
+        
         $cliente = $this->criarCliente();
         $endereco = $this->criarEndereco($cliente);
         $servico = $this->criarServico(60, 100);
