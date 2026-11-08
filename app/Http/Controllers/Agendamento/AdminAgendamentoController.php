@@ -31,7 +31,7 @@ class AdminAgendamentoController extends Controller
         ]);
 
         $agendamentos = Agendamento::query()
-            ->with(['cliente', 'endereco', 'servicos', 'atendente'])
+            ->with(['cliente', 'endereco', 'servicos', 'atendente', 'anexos'])
             ->when($filters['status'] ?? null, fn (Builder $query, $status) => $query->where('status', $status))
             ->when($filters['data_inicio'] ?? null, fn (Builder $query, $date) => $query->whereDate('data_hora', '>=', $date))
             ->when($filters['data_fim'] ?? null, fn (Builder $query, $date) => $query->whereDate('data_hora', '<=', $date))
@@ -42,7 +42,8 @@ class AdminAgendamentoController extends Controller
                 fn (Builder $services) => $services->where('servico.id', $id)
             ))
             ->orderByDesc('data_hora')
-            ->paginate($filters['per_page'] ?? 15);
+            ->paginate($filters['per_page'] ?? 15)
+            ->through(fn (Agendamento $agendamento) => $this->comAnexos($agendamento));
 
         return response()->json($agendamentos);
     }
@@ -59,10 +60,10 @@ class AdminAgendamentoController extends Controller
     public function show(int $id)
     {
         $agendamento = Agendamento::query()
-            ->with(['cliente', 'endereco', 'servicos', 'atendente'])
+            ->with(['cliente', 'endereco', 'servicos', 'atendente', 'anexos'])
             ->findOrFail($id);
 
-        return response()->json(['data' => $agendamento]);
+        return response()->json(['data' => $this->comAnexos($agendamento)]);
     }
 
     public function confirmar(Request $request, int $id)
@@ -134,5 +135,12 @@ class AdminAgendamentoController extends Controller
         });
 
         return response()->json(['data' => $agendamento]);
+    }
+
+    private function comAnexos(Agendamento $agendamento): array
+    {
+        return array_merge($agendamento->toArray(), [
+            'anexos' => $agendamento->anexos->map->paraResposta()->all(),
+        ]);
     }
 }

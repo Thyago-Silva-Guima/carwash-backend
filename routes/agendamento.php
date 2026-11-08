@@ -19,11 +19,6 @@ Route::middleware(['auth:sanctum', 'perfil:cliente'])->group(function () {
     Route::patch('/agendamentos/{id}/cancelar', CancelamentoController::class);
 });
 
-Route::get('/anexos/{anexo}', [AnexoController::class, 'show'])
-    ->whereNumber('anexo')
-    ->middleware('signed')
-    ->name('anexos.show');
-
 Route::prefix('admin')->group(function () {
     Route::middleware(['auth:sanctum', 'perfil:equipe'])->group(function () {
         Route::get('agendamentos/resumo', [AdminAgendamentoController::class, 'resumo']);
@@ -32,6 +27,8 @@ Route::prefix('admin')->group(function () {
         Route::patch('agendamentos/{id}/confirmar', [AdminAgendamentoController::class, 'confirmar'])->whereNumber('id');
         Route::patch('agendamentos/{id}/recusar', [AdminAgendamentoController::class, 'recusar'])->whereNumber('id');
         Route::patch('agendamentos/{id}/concluir', [AdminAgendamentoController::class, 'concluir'])->whereNumber('id');
+
+        Route::get('anexos/{anexo}', [AnexoController::class, 'show'])->whereNumber('anexo');
     });
 
     Route::middleware(['auth:sanctum', 'perfil:admin'])->group(function () {

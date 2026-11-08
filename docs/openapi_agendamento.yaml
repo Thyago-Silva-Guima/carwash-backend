@@ -464,7 +464,8 @@ paths:
       tags:
       - Admin
       summary: Detalhes administrativos de um agendamento
-      description: 'Inclui cliente, endereço, serviços e atendente. Anexos e fotos ainda dependem do schema compartilhado.
+      description: 'Inclui cliente, endereço, serviços, atendente e anexos (id, nome, mime_type e tamanho). A listagem
+        GET /admin/agendamentos também traz os anexos de cada agendamento. O arquivo é baixado por GET /admin/anexos/{anexo}.
         Acesso: equipe (administrador ou funcionário).'
       parameters:
       - name: id
@@ -486,6 +487,44 @@ paths:
         '403': *id002
         '404':
           description: Agendamento não encontrado
+  /admin/anexos/{anexo}:
+    get:
+      tags:
+      - Admin
+      summary: Baixa o arquivo de um anexo do agendamento
+      description: 'Devolve o arquivo (jpg, jpeg, png, webp ou pdf) com o Content-Type original. Exige o token da equipe
+        no header Authorization, então deve ser chamado por requisição autenticada (blob), não por link direto.
+        Acesso: equipe (administrador ou funcionário).'
+      parameters:
+      - name: anexo
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Conteúdo do arquivo
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401': *id001
+        '403': *id002
+        '404':
+          description: Anexo ou arquivo não encontrado
   /admin/agendamentos/{id}/confirmar:
     patch:
       tags:
@@ -767,6 +806,24 @@ components:
           atendente:
             type: object
             nullable: true
+          anexos:
+            type: array
+            items:
+              type: object
+              properties:
+                id:
+                  type: integer
+                nome:
+                  type: string
+                  example: foto.jpg
+                mime_type:
+                  type: string
+                  nullable: true
+                  example: image/jpeg
+                tamanho:
+                  type: integer
+                  nullable: true
+                  example: 1234
   securitySchemes:
     bearerAuth:
       type: http

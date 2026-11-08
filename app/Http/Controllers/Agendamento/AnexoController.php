@@ -18,7 +18,10 @@ class AnexoController extends Controller
         return $disco->response(
             $anexo->url,
             $anexo->nome_original,
-            array_filter(['Content-Type' => $anexo->mime_type]),
+            array_filter([
+                'Content-Type' => $anexo->mime_type,
+                'X-Content-Type-Options' => 'nosniff',
+            ]),
             'inline'
         );
     }
